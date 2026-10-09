@@ -1,0 +1,43 @@
+{
+  "name": "carta-tatica-premier-league",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "lint": "eslint src --fix"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.104.0",
+    "d3-array": "^3.2.4",
+    "d3-contour": "^4.0.2",
+    "d3-delaunay": "^6.0.4",
+    "d3-force": "^3.0.0",
+    "d3-interpolate": "^3.0.1",
+    "d3-scale": "^4.0.2",
+    "d3-shape": "^3.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-router-dom": "^6.24.0",
+    "react-window": "^2.3.3"
+  },
+  "devDependencies": {
+    "@fontsource-variable/fraunces": "^5.0.0",
+    "@fontsource-variable/geist-mono": "^5.0.0",
+    "@types/d3-array": "^3.2.1",
+    "@types/d3-contour": "^3.0.6",
+    "@types/d3-scale": "^4.0.8",
+    "@types/d3-shape": "^3.1.6",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^5.0.5",
+    "eslint": "^9.9.0",
+    "eslint-plugin-react": "^7.35.0",
+    "typescript": "^5.5.2",
+    "vite": "^5.4.0",
+    "vitest": "^2.0.5"
+  }
+}

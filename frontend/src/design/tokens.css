@@ -1,0 +1,34 @@
+/* Carta/Tática - Design Tokens */
+:root {
+  --bg:#07161A; --bg-1:#0B1E23; --bg-2:#10282E;
+  --rule:#1A353C; --rule-soft:#12292F;
+  --ink:#E8EFEA; --ink-2:#8FA9A6; --ink-3:#557270; --ink-4:#2E4A4C;
+  --accent:#E9D8A6; --accent-dim:#E9D8A64D; --accent-wash:#E9D8A614;
+  --opp:#7C93A6; --opp-dim:#7C93A64D;
+  --up:#7FB5A6; --down:#D9835F;
+  --focus:#E9D8A6;
+  --serif:"Fraunces Variable","Iowan Old Style",Georgia,serif;
+  --mono:"Geist Mono Variable",ui-monospace,"SF Mono",Menlo,monospace;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:32px;--s7:48px;--s8:72px;--s9:120px;
+  --r-0:0; --r-1:2px;
+  --ease:cubic-bezier(0.22,1,0.36,1);
+  --t-fast:180ms; --t-base:320ms; --t-slow:560ms; --stagger:48ms;
+}
+
+[data-theme="paper"]{
+  --bg:#F3EFE6; --bg-1:#ECE7DB; --bg-2:#E3DDCE; --rule:#CFC8B6; --rule-soft:#DDD7C7;
+  --ink:#16201F; --ink-2:#4F5F5C; --ink-3:#7C8985; --ink-4:#B2B7AE;
+  --accent:#B5452B; --accent-dim:#B5452B4D; --accent-wash:#B5452B12;
+  --opp:#5D7488; --opp-dim:#5D74884D; --up:#2F7A6B; --down:#B5452B;
+}
+
+/* Typography scale */
+.h1 { font-size: clamp(96px,14vw,200px); line-height: 0.85; letter-spacing: -0.03em; font-variation-settings: "opsz" 144, "SOFT" 0, "WONK" 0; }
+.h2 { font-size: 32px; }
+.h3 { font-size: 40px; font-weight: 400; }
+.num { font-size: 40px; font-variation-settings: "opsz" 72; }
+.title { font-size: 32px; font-weight: 400; }
+.caption { font-size: 15px; font-style: italic; }
+.body { font-size: 13px; }
+.label { font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; }
+.micro { font-size: 10px; }
