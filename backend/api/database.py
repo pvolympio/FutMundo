@@ -231,3 +231,17 @@ async def call_standings_at_round(
     query = "SELECT * FROM fn_standings_at_round($1::bigint, $2::bigint, $3::smallint)"
     rows = await conn.fetch(query, competition_id, season_id, max_round)
     return [dict(row) for row in rows]
+
+
+async def get_view_last_modified(
+    conn: asyncpg.Connection,
+    view_name: str
+) -> Optional[object]:
+    """Retorna o timestamp da última atualização da view materializada para geração de ETag."""
+    try:
+        return await conn.fetchval(
+            "SELECT last_refreshed_at FROM matview_refresh_log WHERE view_name = $1",
+            view_name,
+        )
+    except Exception:
+        return None

@@ -7,10 +7,10 @@ import logging
 from typing import Annotated, Optional
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 
 from backend.api.config import settings
-from backend.api.database import get_database, call_player_profile
+from backend.api.database import get_database, call_player_profile, get_view_last_modified
 from backend.api.dependencies import not_found_error
 from backend.api.models import PaginationParams, PaginatedResponse
 
@@ -173,14 +173,28 @@ async def compare_players(
     description="Ranking dos atletas da Premier League por gols, assistências, xG, xA ou métricas por 90'.",
 )
 async def get_player_rankings(
+    request: Request,
     response: Response,
     metric: str = Query("goals", pattern="^(goals|assists|xg|xa|shots|key_passes|goals_per_90|xg_per_90)$", description="Métrica para ordenação"),
     limit: int = Query(20, ge=1, le=100, description="Quantidade de atletas no ranking"),
     min_minutes: int = Query(200, ge=0, description="Mínimo de minutos jogados"),
     db: asyncpg.Connection = Depends(get_database),
 ):
-    """Rank players by standard and per-90 metrics sorted directly in SQL."""
+    """Rank players by standard and per-90 metrics sorted directly in SQL with ETag revalidation."""
     response.headers["Cache-Control"] = f"public, max-age={settings.CACHE_TTL_SECONDS}, stale-while-revalidate=60"
+
+    # ETag baseado no timestamp do último refresh da view
+    last_mod = await get_view_last_modified(db, "mv_player_season_rankings")
+    if last_mod and hasattr(last_mod, "timestamp"):
+        ts = int(last_mod.timestamp())
+        etag = f'W/"rankings-{metric}-{min_minutes}-{limit}-{ts}"'
+        response.headers["ETag"] = etag
+        response.headers["Last-Modified"] = last_mod.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+        if_none_match = request.headers.get("if-none-match")
+        if if_none_match and if_none_match.strip() == etag:
+            response.status_code = 304
+            return []
 
     metric_cols = {
         "goals": "goals",
