@@ -41,11 +41,13 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio anyio httpx
 
-      - name: Initialize PostgreSQL Database Schema
+      - name: Initialize PostgreSQL Database Schema, Migrations & Seed
         env:
           PGPASSWORD: futfut_secret
         run: |
           psql -h localhost -U futfut -d futfut -f backend/schema.sql
+          psql -h localhost -U futfut -d futfut -f backend/seed.sql
+          python -m backend.migrations.runner migrate
 
       - name: Run Backend Pytest Suite
         env:

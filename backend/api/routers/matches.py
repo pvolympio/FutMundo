@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from backend.api.config import settings
 from backend.api.database import get_database, call_match_details
 from backend.api.dependencies import not_found_error
-from backend.api.models import PaginationParams, PaginatedResponse
+from backend.api.models import PaginationParams, PaginatedResponse, LatestMatchInfo
 
 router = APIRouter(
     prefix="/matches",
@@ -97,7 +97,7 @@ async def list_matches(
 
 @router.get(
     "/latest",
-    response_model=dict,
+    response_model=LatestMatchInfo,
     summary="Get latest played match and round",
     description="Retorna a última partida finalizada e a última rodada com jogos concluídos.",
 )

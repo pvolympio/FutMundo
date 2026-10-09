@@ -114,9 +114,9 @@ export function Match() {
 
   const homeScore = matchData?.score?.home ?? 0;
   const awayScore = matchData?.score?.away ?? 0;
-  const homeXG = matchData?.stats?.home?.xg ?? (homeShots.reduce((acc, s) => acc + s.xG, 0) || 1.8);
-  const awayXG = matchData?.stats?.away?.xg ?? (awayShots.reduce((acc, s) => acc + s.xG, 0) || 1.2);
-  const homePoss = matchData?.stats?.home?.possession_pct ?? 55;
+  const homeXG = matchData?.stats?.home?.xg ?? homeShots.reduce((acc, s) => acc + s.xG, 0);
+  const awayXG = matchData?.stats?.away?.xg ?? awayShots.reduce((acc, s) => acc + s.xG, 0);
+  const homePoss = matchData?.stats?.home?.possession_pct ?? 50;
   const awayPoss = matchData?.stats?.away?.possession_pct ?? (100 - homePoss);
 
   return (

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Res
 from backend.api.config import settings
 from backend.api.database import get_database, call_player_profile, get_view_last_modified
 from backend.api.dependencies import not_found_error
-from backend.api.models import PaginationParams, PaginatedResponse
+from backend.api.models import PaginationParams, PaginatedResponse, PlayerRankingItem
 
 router = APIRouter(
     prefix="/players",
@@ -168,7 +168,7 @@ async def compare_players(
 
 @router.get(
     "/rankings",
-    response_model=list[dict],
+    response_model=list[PlayerRankingItem],
     summary="Player leaderboards and rankings",
     description="Ranking dos atletas da Premier League por gols, assistências, xG, xA ou métricas por 90'.",
 )

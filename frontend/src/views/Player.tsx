@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   usePlayerProfile,
   usePlayerShots,
   usePlayerStats,
   usePlayerComparison,
+  usePlayerRankings,
   useSearch,
 } from '../lib/queries';
 import { Pitch } from '../charts/Pitch';
@@ -131,22 +132,46 @@ function PlayerPicker({
 export function Player() {
   const { id } = useParams<{ id?: string }>();
   const navigate = useNavigate();
+
+  // Consulta atletas em destaque dinamicamente da API em vez de ids fixos
+  const { data: topScorers = [] } = usePlayerRankings('goals', 10);
+  const featuredPlayers = useMemo(() => {
+    if (topScorers && topScorers.length > 0) {
+      return topScorers.map((p) => ({
+        id: p.player_id,
+        name: p.name,
+        club: p.team_short || p.team_name,
+        pos: 'AT',
+      }));
+    }
+    return [];
+  }, [topScorers]);
+
   const [selectedPlayerId, setSelectedPlayerId] = useState<number>(() => {
-    return id ? Number(id) : 338;
+    if (id) return Number(id);
+    return topScorers[0]?.player_id || 1;
   });
 
-  const [rivalPlayerId, setRivalPlayerId] = useState<number>(327); // Salah default rival
+  const [rivalPlayerId, setRivalPlayerId] = useState<number>(() => {
+    return topScorers[1]?.player_id || 2;
+  });
   const [activeFilter, setActiveFilter] = useState<'all' | 'goal' | 'saved' | 'miss'>('all');
   const [viewMode, setViewMode] = useState<'shots' | 'compare'>('shots');
 
+  // Atualiza seleção ao receber dados dinâmicos da API caso nenhum ID esteja na URL
   useEffect(() => {
     if (id) {
       setSelectedPlayerId(Number(id));
+    } else if (topScorers.length > 0 && selectedPlayerId === 1) {
+      setSelectedPlayerId(topScorers[0].player_id);
+      if (topScorers.length > 1) {
+        setRivalPlayerId(topScorers[1].player_id);
+      }
     }
-  }, [id]);
+  }, [id, topScorers, selectedPlayerId]);
 
   const effectiveRivalId = selectedPlayerId === rivalPlayerId
-    ? (selectedPlayerId === 338 ? 327 : 338)
+    ? (topScorers.find((p) => p.player_id !== selectedPlayerId)?.player_id || selectedPlayerId)
     : rivalPlayerId;
 
   // Carregar perfil, chutes, estatísticas e comparação via TanStack Query
@@ -195,32 +220,33 @@ export function Player() {
 
   const rivalClubName = compareData?.player_b?.team_name || 'Premier League';
   const rivalClubTheme = getClubTheme(rivalClubName);
-  const playerGoals = stats?.goals ?? (shots.filter((s) => s.shot_result === 'goal').length || 22);
-  const playerXg = stats?.xg ?? 23.95;
-  const playerAssists = stats?.assists ?? 3;
-  const playerXa = stats?.xa ?? 3.58;
-  const playerMatches = stats?.matches ?? 31;
-  const playerMinutes = stats?.minutes ?? 2550;
+  // Estatísticas reais derivadas de dados ou 0 sem valores inventados
+  const playerGoals = stats?.goals ?? shots.filter((s) => s.shot_result === 'goal').length;
+  const playerXg = stats?.xg ?? Number(shots.reduce((acc, s) => acc + (s.xg || 0), 0).toFixed(2));
+  const playerAssists = stats?.assists ?? 0;
+  const playerXa = stats?.xa ?? 0.0;
+  const playerMatches = stats?.matches ?? (shots.length > 0 ? 1 : 0);
+  const playerMinutes = stats?.minutes ?? (shots.length > 0 ? 90 : 0);
 
-  // Dados formatados para o radar chart
+  // Dados formatados para o radar chart derivados estritamente do contrato ou 0
   const radarPlayerA: PlayerMetricData = {
     name: compareData?.player_a?.name || playerName,
-    goals_per_90: compareData?.player_a?.goals_per_90 ?? stats?.goals_per_90 ?? 0.72,
-    xg_per_90: compareData?.player_a?.xg_per_90 ?? stats?.xg_per_90 ?? 0.78,
-    xa_per_90: compareData?.player_a?.xa_per_90 ?? stats?.xa_per_90 ?? 0.12,
-    shots_per_90: compareData?.player_a?.shots_per_90 ?? stats?.shots_per_90 ?? 3.57,
-    key_passes_per_90: compareData?.player_a?.key_passes_per_90 ?? stats?.key_passes_per_90 ?? 0.95,
-    shot_accuracy_pct: compareData?.player_a?.shot_accuracy_pct ?? stats?.shot_accuracy_pct ?? 20.2,
+    goals_per_90: compareData?.player_a?.goals_per_90 ?? stats?.goals_per_90 ?? 0.0,
+    xg_per_90: compareData?.player_a?.xg_per_90 ?? stats?.xg_per_90 ?? 0.0,
+    xa_per_90: compareData?.player_a?.xa_per_90 ?? stats?.xa_per_90 ?? 0.0,
+    shots_per_90: compareData?.player_a?.shots_per_90 ?? stats?.shots_per_90 ?? 0.0,
+    key_passes_per_90: compareData?.player_a?.key_passes_per_90 ?? stats?.key_passes_per_90 ?? 0.0,
+    shot_accuracy_pct: compareData?.player_a?.shot_accuracy_pct ?? stats?.shot_accuracy_pct ?? 0.0,
   };
 
   const radarPlayerB: PlayerMetricData = {
     name: compareData?.player_b?.name || 'Rival',
-    goals_per_90: compareData?.player_b?.goals_per_90 ?? 0.77,
-    xg_per_90: compareData?.player_b?.xg_per_90 ?? 0.74,
-    xa_per_90: compareData?.player_b?.xa_per_90 ?? 0.42,
-    shots_per_90: compareData?.player_b?.shots_per_90 ?? 3.45,
-    key_passes_per_90: compareData?.player_b?.key_passes_per_90 ?? 2.36,
-    shot_accuracy_pct: compareData?.player_b?.shot_accuracy_pct ?? 22.3,
+    goals_per_90: compareData?.player_b?.goals_per_90 ?? 0.0,
+    xg_per_90: compareData?.player_b?.xg_per_90 ?? 0.0,
+    xa_per_90: compareData?.player_b?.xa_per_90 ?? 0.0,
+    shots_per_90: compareData?.player_b?.shots_per_90 ?? 0.0,
+    key_passes_per_90: compareData?.player_b?.key_passes_per_90 ?? 0.0,
+    shot_accuracy_pct: compareData?.player_b?.shot_accuracy_pct ?? 0.0,
   };
 
   return (
@@ -235,7 +261,7 @@ export function Player() {
         </div>
 
         <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '8px' }}>
-          {FEATURED_PLAYERS.map((p) => {
+          {featuredPlayers.map((p) => {
             const isSelected = p.id === selectedPlayerId;
             const itemTheme = getClubTheme(p.club);
             return (

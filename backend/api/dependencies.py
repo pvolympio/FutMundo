@@ -30,3 +30,15 @@ def error_response(error: str, detail: str = None, status_code: int = 400):
         status_code=status_code,
         detail=detail or error
     )
+
+
+def cache_control(ttl: int = None, stale_while_revalidate: int = 60):
+    """Dependency helper to standardize Cache-Control headers across endpoints."""
+    from fastapi import Response
+    from .config import settings
+
+    def _inject(response: Response):
+        max_age = ttl if ttl is not None else settings.CACHE_TTL_SECONDS
+        response.headers["Cache-Control"] = f"public, max-age={max_age}, stale-while-revalidate={stale_while_revalidate}"
+
+    return _inject

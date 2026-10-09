@@ -6,8 +6,23 @@ Inclui logging, tratamento de erros, CORS e rate limiting.
 import time
 import logging
 import traceback
+import uuid
 from collections import OrderedDict
 from typing import Callable
+
+from prometheus_client import Counter, Histogram
+
+HTTP_REQUESTS_TOTAL = Counter(
+    "futmundo_http_requests_total",
+    "Total de requisições HTTP processadas",
+    ["method", "endpoint", "status"]
+)
+HTTP_REQUEST_DURATION_SECONDS = Histogram(
+    "futmundo_http_request_duration_seconds",
+    "Histograma de latência de requisições HTTP",
+    ["method", "endpoint"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
+)
 
 from fastapi import Request, Response, HTTPException
 from fastapi.responses import JSONResponse
@@ -21,38 +36,53 @@ logger = logging.getLogger(__name__)
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Middleware para log de requisições com timing."""
+    """Middleware para correlação de Request-ID, log estruturado e métricas Prometheus."""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         start_time = time.time()
+        
+        # Extrai ou gera Request-ID para rastreabilidade de ponta a ponta
+        request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:16]
+        request.state.request_id = request_id
 
-        # Log da requisição
+        path_label = request.url.path
+        # Agrupa endpoints parametrizados para não inflacionar cardinalidade de métricas
+        if path_label.startswith("/players/") and path_label != "/players/rankings":
+            path_label = "/players/{id}"
+        elif path_label.startswith("/matches/") and path_label != "/matches/latest":
+            path_label = "/matches/{id}"
+        elif path_label.startswith("/teams/"):
+            path_label = "/teams/{id}"
+
         logger.info(
-            f"{request.method} {request.url.path} - "
+            f"[{request_id}] {request.method} {request.url.path} - "
             f"Client: {request.client.host if request.client else 'unknown'}"
         )
 
         try:
             response = await call_next(request)
-
-            # Calcula tempo de processamento
             process_time = time.time() - start_time
 
-            # Log da resposta
+            # Registra métricas Prometheus
+            HTTP_REQUEST_DURATION_SECONDS.labels(method=request.method, endpoint=path_label).observe(process_time)
+            HTTP_REQUESTS_TOTAL.labels(method=request.method, endpoint=path_label, status=str(response.status_code)).inc()
+
             logger.info(
-                f"{request.method} {request.url.path} - "
+                f"[{request_id}] {request.method} {request.url.path} - "
                 f"Status: {response.status_code} - "
                 f"Time: {process_time*1000:.2f}ms"
             )
 
-            # Adiciona header de resposta
-            response.headers["X-Processing-Time"] = str(process_time)
+            # Injeta headers de rastreamento
+            response.headers["X-Request-ID"] = request_id
+            response.headers["X-Processing-Time"] = f"{process_time*1000:.2f}ms"
 
             return response
         except Exception as e:
             process_time = time.time() - start_time
+            HTTP_REQUESTS_TOTAL.labels(method=request.method, endpoint=path_label, status="500").inc()
             logger.error(
-                f"{request.method} {request.url.path} - "
+                f"[{request_id}] {request.method} {request.url.path} - "
                 f"Error: {str(e)} - Time: {process_time*1000:.2f}ms",
                 exc_info=True
             )

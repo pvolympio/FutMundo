@@ -86,7 +86,7 @@ export function NavHeader() {
             title="Alternar foco entre mandante e visitante (Atalho: F)"
           >
             <span className="btn-label">FOCO:</span>
-            <span className="btn-val">{focus === 'home' ? 'MCI' : 'ARS'}</span>
+            <span className="btn-val">{focus === 'home' ? 'CASA' : 'FORA'}</span>
             <kbd className="kbd"><kbd className="kbd-key">F</kbd></kbd>
           </button>
 

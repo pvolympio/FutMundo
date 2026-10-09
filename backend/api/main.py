@@ -124,13 +124,13 @@ def create_app() -> FastAPI:
                 await db_pool.release(conn)
             return checks
         except Exception as e:
-            logger.warning("Readiness database check failed: %s", e)
+            logger.error("Readiness database check failed: %s", e, exc_info=True)
             return JSONResponse(
                 status_code=503,
                 content={
                     "status": "degraded",
                     "version": settings.API_VERSION,
-                    "checks": {"database": f"error: {str(e)}"},
+                    "checks": {"database": "error: database_unreachable"},
                 },
             )
 
@@ -146,11 +146,17 @@ def create_app() -> FastAPI:
             finally:
                 await db_pool.release(conn)
         except Exception as e:
-            logger.warning("Health check database error: %s", e)
-            checks["checks"]["database"] = f"error: {str(e)}"
+            logger.error("Health check database error: %s", e, exc_info=True)
+            checks["checks"]["database"] = "error: database_unreachable"
             checks["status"] = "degraded"
 
         return checks
+
+    @app.get("/metrics", tags=["Observability"], summary="Prometheus metrics", include_in_schema=False)
+    async def metrics():
+        """Exposição de métricas Prometheus para monitoramento e observabilidade."""
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
     # Root endpoint
     @app.get("/", tags=["Root"], summary="API info")

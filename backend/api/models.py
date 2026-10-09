@@ -356,11 +356,57 @@ class StandingsRequest(BaseModel):
 
 
 # ============================================
-# Response Wrappers for RPC Functions
+# Response Models for Rankings and Match Lookups
 # ============================================
 
-# Note: The RPC functions return JSON/JSONB directly, so these models
-# are used for documentation and response validation.
+class PlayerRankingItem(BaseModel):
+    """Modelo de contrato para item de ranking individual de atleta."""
+    rank: int
+    player_id: int
+    name: str
+    photo_url: Optional[str] = None
+    nationality: Optional[str] = None
+    team_id: int
+    team_name: str
+    team_short: str
+    goals: int
+    assists: int
+    xg: float
+    xa: float
+    minutes: int
+    matches: int
+    shots: int
+    shots_on_target: int
+    key_passes: int
+    goals_per_90: float
+    xg_per_90: float
+    xa_per_90: float
+    shots_per_90: float
+    key_passes_per_90: float
+    shot_accuracy_pct: float
+
+
+class LatestMatchInfo(BaseModel):
+    """Modelo de contrato para identificadores da partida mais recente."""
+    match_id: int
+    round: int
+    match_date: Optional[str] = None
+
+
+class LatestMatchResponse(BaseModel):
+    """Modelo de contrato para a partida mais recente disputada."""
+    match_id: int
+    matchday: int
+    round: int
+    match_date: Optional[str] = None
+    home_team_id: int
+    home_team: str
+    home_team_short: str
+    away_team_id: int
+    away_team: str
+    away_team_short: str
+    status: str
+
 
 def wrap_rpc_response(data: Any) -> APIResponse:
     """Wrap RPC function result in standard API response."""
