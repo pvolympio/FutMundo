@@ -6,6 +6,7 @@ Inclui logging, tratamento de erros, CORS e rate limiting.
 import time
 import logging
 import traceback
+from collections import OrderedDict
 from typing import Callable
 
 from fastapi import Request, Response, HTTPException
@@ -90,31 +91,49 @@ ErrorHandlingMiddleware = SecurityHeadersMiddleware
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
-    Middleware de rate limiting em memória por IP real com limpeza periódica de entradas.
-    Complementa o limit_req do Nginx para ambientes locais e defesa em profundidade.
+    Middleware de rate limiting em memória por IP real baseado em LRU (Least Recently Used).
+    Atua como defesa em profundidade local/aplicacional, complementando o rate limit
+    perimetral do Nginx (limit_req com zone=api_limit no nginx.conf).
+    
+    Substitui limpezas totais destrutivas (clear()) por evicção LRU seletiva
+    para prevenir evasão deliberada de limites por atacantes.
     """
 
-    def __init__(self, app, requests: int = 100, window: int = 60):
+    def __init__(self, app, requests: int = 100, window: int = 60, max_entries: int = 10000):
         super().__init__(app)
         self.requests = requests
         self.window = window
-        self._store: dict[str, list[float]] = {}
+        self.max_entries = max_entries
+        self._store: OrderedDict[str, list[float]] = OrderedDict()
         self._last_cleanup = time.time()
 
     def _cleanup_old_entries(self, current_time: float) -> None:
-        """Limpa IPs inativos para evitar vazamento de memória."""
+        """Limpa IPs inativos e evicta os menos recentemente usados quando a capacidade é atingida."""
         if current_time - self._last_cleanup < 60:
             return
         self._last_cleanup = current_time
+
+        # 1. Remove IPs cujos timestamps já expiraram da janela
         expired_ips = [
             ip for ip, timestamps in self._store.items()
             if not timestamps or (current_time - timestamps[-1] >= self.window)
         ]
         for ip in expired_ips:
             self._store.pop(ip, None)
-        # Proteção contra crescimento ilimitado
-        if len(self._store) > 10000:
-            self._store.clear()
+
+        # 2. Se a capacidade máxima ainda for excedida, evicta seletivamente os mais antigos (LRU)
+        # Nunca faz clear() global para não resetar baldes de clientes ativos
+        evicted_count = 0
+        while len(self._store) > self.max_entries:
+            self._store.popitem(last=False)
+            evicted_count += 1
+
+        if evicted_count > 0:
+            logger.warning(
+                "RateLimitMiddleware atingiu teto de %d entradas. %d clientes inativos evictados via LRU.",
+                self.max_entries,
+                evicted_count,
+            )
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Pula rate limit em endpoints de saúde/liveness
@@ -128,13 +147,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Filtra timestamps da janela atual
         timestamps = self._store.get(client_ip, [])
         timestamps = [t for t in timestamps if current_time - t < self.window]
-        self._store[client_ip] = timestamps
 
         if len(timestamps) >= self.requests:
             reset_time = max(
                 1,
                 int(self.window - (current_time - (timestamps[0] if timestamps else current_time)))
             )
+            # Reinsere para marcar atividade recente
+            self._store[client_ip] = timestamps
+            self._store.move_to_end(client_ip)
             return JSONResponse(
                 status_code=429,
                 content={
@@ -149,6 +170,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
 
         timestamps.append(current_time)
+        self._store[client_ip] = timestamps
+        self._store.move_to_end(client_ip)
+
         response = await call_next(request)
         response.headers["X-RateLimit-Limit"] = str(self.requests)
         response.headers["X-RateLimit-Remaining"] = str(max(0, self.requests - len(timestamps)))

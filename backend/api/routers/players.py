@@ -7,7 +7,7 @@ import logging
 from typing import Annotated, Optional
 
 import asyncpg
-from fastapi import APIRouter, Depends, Path, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 
 from backend.api.config import settings
 from backend.api.database import get_database, call_player_profile
@@ -227,7 +227,12 @@ async def get_player_rankings(
     """
     try:
         rows = await db.fetch(query_mv, min_minutes, limit)
-    except Exception:
+    except asyncpg.UndefinedTableError as err:
+        logger.warning(
+            "Materialized view mv_player_season_rankings não encontrada. "
+            "Executando agregação dinâmica de fallback em gold_player_match_stats. Aviso: %s",
+            err,
+        )
         query_fallback = f"""
             SELECT 
                 p.player_id,
@@ -266,6 +271,9 @@ async def get_player_rankings(
             LIMIT $2
         """
         rows = await db.fetch(query_fallback, min_minutes, limit)
+    except Exception as exc:
+        logger.error("Erro inesperado ao consultar ranking de jogadores: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao consultar rankings de atletas")
 
     return [{"rank": idx + 1, **dict(r)} for idx, r in enumerate(rows)]
 

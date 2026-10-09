@@ -109,6 +109,17 @@ def create_app() -> FastAPI:
             try:
                 await conn.fetchval("SELECT 1")
                 checks["checks"]["database"] = "ok"
+
+                # Valida disponibilidade da view materializada de rankings
+                try:
+                    mv_exists = await conn.fetchval(
+                        "SELECT EXISTS (SELECT 1 FROM pg_matviews WHERE matviewname = 'mv_player_season_rankings')"
+                    )
+                    checks["checks"]["mv_rankings"] = "ok" if mv_exists else "missing"
+                    if not mv_exists:
+                        checks["status"] = "degraded"
+                except Exception:
+                    checks["checks"]["mv_rankings"] = "unknown"
             finally:
                 await db_pool.release(conn)
             return checks
