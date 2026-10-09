@@ -25,7 +25,6 @@ export function Head2Head() {
   const { data: teamsRaw } = useTeams();
   const teams = useMemo<TeamItem[]>(() => {
     if (Array.isArray(teamsRaw)) return teamsRaw;
-    if (teamsRaw && Array.isArray((teamsRaw as any).items)) return (teamsRaw as any).items;
     return [];
   }, [teamsRaw]);
   const { data: h2hData, isLoading: loading } = useTeamH2H(teamAId, teamBId);

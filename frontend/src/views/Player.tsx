@@ -161,13 +161,21 @@ export function Player() {
   // Converter chutes para o componente ShotMarkers
   const formattedShots = shots.map((s) => {
     const isGoal = s.shot_result === 'goal';
+    const result: Shot['result'] =
+      s.shot_result === 'goal' ? 'goal' :
+      s.shot_result === 'saved' ? 'saved' :
+      s.shot_result === 'blocked' ? 'blocked' : 'off_target';
+    const bodyPart: Shot['bodyPart'] =
+      s.body_part === 'head' ? 'head' :
+      s.body_part === 'left_foot' ? 'left_foot' : 'right_foot';
+
     return {
       x: s.x,
       y: s.y,
-      xG: (s as any).xg ?? (isGoal ? 0.35 : Math.max(0.05, Math.min(0.35, 1 / (Math.hypot(100 - s.x, 50 - s.y) * 0.15 + 1)))),
-      result: (s.shot_result === 'goal' ? 'goal' : s.shot_result === 'saved' ? 'saved' : s.shot_result === 'blocked' ? 'blocked' : 'off_target') as any,
-      situation: (s as any).situation || (s.is_penalty ? 'penalty' : 'open_play'),
-      bodyPart: (s.body_part === 'head' ? 'head' : s.body_part === 'left_foot' ? 'left_foot' : 'right_foot') as any,
+      xG: s.xg ?? (isGoal ? 0.35 : Math.max(0.05, Math.min(0.35, 1 / (Math.hypot(100 - s.x, 50 - s.y) * 0.15 + 1)))),
+      result,
+      situation: s.situation || (s.is_penalty ? 'penalty' : 'open_play'),
+      bodyPart,
       minute: s.minute,
       player: profile?.display_name || 'Atleta',
       assist: s.assist_name,
@@ -498,7 +506,7 @@ export function Player() {
                     <span style={{ color: 'var(--ink-3)' }}>vs {sh.opponent_name}</span>
                   </div>
                   <div style={{ color: 'var(--ink-3)', fontSize: '10px' }}>
-                    {(sh as any).xg ? `xG ${(sh as any).xg.toFixed(3)} • ` : ''}
+                    {sh.xg ? `xG ${sh.xg.toFixed(3)} • ` : ''}
                     {sh.body_part === 'head' ? 'Cabeceio' : sh.body_part === 'left_foot' ? 'Pé esquerdo' : 'Pé direito'} • Coords ({Number(sh.x).toFixed(1)}, {Number(sh.y).toFixed(1)})
                   </div>
                 </div>

@@ -7,8 +7,9 @@ import logging
 from typing import Annotated, Optional
 
 import asyncpg
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Response
 
+from backend.api.config import settings
 from backend.api.database import get_database, call_player_profile
 from backend.api.dependencies import not_found_error
 from backend.api.models import PaginationParams, PaginatedResponse
@@ -29,17 +30,19 @@ logger = logging.getLogger(__name__)
     description="List players with optional filters by team and position. Supports pagination via page and page_size parameters.",
 )
 async def list_players(
+    response: Response,
     pagination: PaginationParams = Depends(),
     team_id: Optional[int] = Query(None, ge=1, description="Filter by team ID"),
     position: Optional[str] = Query(None, pattern="^(GK|DEF|MID|FW)$", description="Filter by position (GK, DEF, MID, FW)"),
     search: Optional[str] = Query(None, description="Search by player name"),
     db: asyncpg.Connection = Depends(get_database),
 ):
-    """List players with pagination and optional filters."""
+    """List players with pagination and optional filters using trigram search and COUNT(*) OVER()."""
     offset = pagination.offset
     limit = pagination.page_size
+    response.headers["Cache-Control"] = f"public, max-age={settings.CACHE_TTL_SECONDS}, stale-while-revalidate=60"
 
-    # Build query with optional filters
+    # Consulta otimizada com busca por trigrama indexada e COUNT(*) OVER() unificado
     query = """
         SELECT
             p.player_id,
@@ -51,28 +54,43 @@ async def list_players(
             COALESCE(t.canonical_name, '') as team_name,
             EXTRACT(YEAR FROM age(CURRENT_DATE, p.birth_date))::int as age,
             p.market_value_eur,
-            p.photo_url
+            p.photo_url,
+            COUNT(*) OVER() AS total_count
         FROM player p
         LEFT JOIN player_team_history pth ON pth.player_id = p.player_id AND pth.is_current = true
         LEFT JOIN team t ON t.team_id = pth.team_id
         WHERE ($1::int IS NULL OR pth.team_id = $1)
           AND ($2::text IS NULL OR pth.position_code = $2)
-          AND ($3::text IS NULL OR p.display_name ILIKE '%' || $3 || '%' OR p.full_name ILIKE '%' || $3 || '%')
+          AND (
+              $3::text IS NULL
+              OR p.normalized_name % normalize_name($3)
+              OR p.normalized_name LIKE '%' || escape_like_pattern(normalize_name($3)) || '%'
+          )
         ORDER BY p.shirt_number ASC NULLS LAST, p.display_name ASC
         LIMIT $4 OFFSET $5
     """
     rows = await db.fetch(query, team_id, position, search, limit, offset)
-    items = [dict(r) for r in rows]
 
-    # Get total count for pagination
-    count_query = """
-        SELECT COUNT(*) FROM player p
-        LEFT JOIN player_team_history pth ON pth.player_id = p.player_id AND pth.is_current = true
-        WHERE ($1::int IS NULL OR pth.team_id = $1)
-          AND ($2::text IS NULL OR pth.position_code = $2)
-          AND ($3::text IS NULL OR p.display_name ILIKE '%' || $3 || '%' OR p.full_name ILIKE '%' || $3 || '%')
-    """
-    total = await db.fetchval(count_query, team_id, position, search)
+    if rows:
+        total = rows[0]["total_count"]
+        items = [{k: v for k, v in dict(r).items() if k != "total_count"} for r in rows]
+    else:
+        if offset == 0:
+            total = 0
+        else:
+            count_query = """
+                SELECT COUNT(*) FROM player p
+                LEFT JOIN player_team_history pth ON pth.player_id = p.player_id AND pth.is_current = true
+                WHERE ($1::int IS NULL OR pth.team_id = $1)
+                  AND ($2::text IS NULL OR pth.position_code = $2)
+                  AND (
+                      $3::text IS NULL
+                      OR p.normalized_name % normalize_name($3)
+                      OR p.normalized_name LIKE '%' || escape_like_pattern(normalize_name($3)) || '%'
+                  )
+            """
+            total = await db.fetchval(count_query, team_id, position, search) or 0
+        items = []
 
     return PaginatedResponse(
         items=items,
@@ -155,64 +173,101 @@ async def compare_players(
     description="Ranking dos atletas da Premier League por gols, assistências, xG, xA ou métricas por 90'.",
 )
 async def get_player_rankings(
+    response: Response,
     metric: str = Query("goals", pattern="^(goals|assists|xg|xa|shots|key_passes|goals_per_90|xg_per_90)$", description="Métrica para ordenação"),
     limit: int = Query(20, ge=1, le=100, description="Quantidade de atletas no ranking"),
     min_minutes: int = Query(200, ge=0, description="Mínimo de minutos jogados"),
     db: asyncpg.Connection = Depends(get_database),
 ):
-    """Rank players by standard and per-90 metrics."""
-    query = """
+    """Rank players by standard and per-90 metrics sorted directly in SQL."""
+    response.headers["Cache-Control"] = f"public, max-age={settings.CACHE_TTL_SECONDS}, stale-while-revalidate=60"
+
+    metric_cols = {
+        "goals": "goals",
+        "assists": "assists",
+        "xg": "xg",
+        "xa": "xa",
+        "shots": "shots",
+        "key_passes": "key_passes",
+        "goals_per_90": "goals_per_90",
+        "xg_per_90": "xg_per_90",
+    }
+    order_col = metric_cols.get(metric, "goals")
+    tie_col = "xg" if order_col == "goals" else ("xa" if order_col == "assists" else "goals")
+
+    # Tenta consultar da view materializada mv_player_season_rankings; se não existir, agrega em SQL
+    query_mv = f"""
         SELECT 
-            p.player_id,
-            COALESCE(p.display_name, p.full_name) as name,
-            p.photo_url,
-            p.nationality_code as nationality,
-            t.team_id,
-            t.canonical_name as team_name,
-            t.short_name as team_short,
-            COALESCE(SUM(g.goals), 0)::int as goals,
-            COALESCE(SUM(g.assists), 0)::int as assists,
-            COALESCE(ROUND(SUM(g.xg)::numeric, 2), 0)::float as xg,
-            COALESCE(ROUND(SUM(g.xa)::numeric, 2), 0)::float as xa,
-            COALESCE(SUM(g.minutes), 0)::int as minutes,
-            COUNT(DISTINCT g.match_id)::int as matches,
-            COALESCE(SUM((g.stats->>'shots')::int), 0)::int as shots,
-            COALESCE(SUM((g.stats->>'shots_on_target')::int), 0)::int as shots_on_target,
-            COALESCE(SUM((g.stats->>'key_passes')::int), 0)::int as key_passes
-        FROM gold_player_match_stats g
-        JOIN player p ON p.player_id = g.player_id
-        JOIN team t ON t.team_id = g.team_id
-        WHERE g.stat_type = 'standard'
-        GROUP BY p.player_id, p.display_name, p.full_name, p.photo_url, p.nationality_code, t.team_id, t.canonical_name, t.short_name
-        HAVING SUM(g.minutes) >= $1
+            player_id,
+            name,
+            photo_url,
+            nationality,
+            team_id,
+            team_name,
+            team_short,
+            goals,
+            assists,
+            xg,
+            xa,
+            minutes,
+            matches,
+            shots,
+            shots_on_target,
+            key_passes,
+            goals_per_90,
+            xg_per_90,
+            xa_per_90,
+            shots_per_90,
+            key_passes_per_90,
+            shot_accuracy_pct
+        FROM mv_player_season_rankings
+        WHERE minutes >= $1
+        ORDER BY {order_col} DESC NULLS LAST, {tie_col} DESC NULLS LAST, minutes ASC
+        LIMIT $2
     """
-    rows = await db.fetch(query, min_minutes)
-    results = []
-    for r in rows:
-        d = dict(r)
-        mins = d["minutes"]
-        m90 = mins / 90.0 if mins > 0 else 1.0
-        shots = d["shots"]
-        goals = d["goals"]
-        d["goals_per_90"] = round(goals / m90, 2)
-        d["xg_per_90"] = round(d["xg"] / m90, 2)
-        d["xa_per_90"] = round(d["xa"] / m90, 2)
-        d["shots_per_90"] = round(shots / m90, 2)
-        d["key_passes_per_90"] = round(d["key_passes"] / m90, 2)
-        d["shot_accuracy_pct"] = round(d["shots_on_target"] / shots * 100, 1) if shots > 0 else 0.0
-        results.append(d)
+    try:
+        rows = await db.fetch(query_mv, min_minutes, limit)
+    except Exception:
+        query_fallback = f"""
+            SELECT 
+                p.player_id,
+                COALESCE(p.display_name, p.full_name) as name,
+                p.photo_url,
+                p.nationality_code as nationality,
+                t.team_id,
+                t.canonical_name as team_name,
+                t.short_name as team_short,
+                COALESCE(SUM(g.goals), 0)::int as goals,
+                COALESCE(SUM(g.assists), 0)::int as assists,
+                COALESCE(ROUND(SUM(g.xg)::numeric, 2), 0)::float as xg,
+                COALESCE(ROUND(SUM(g.xa)::numeric, 2), 0)::float as xa,
+                COALESCE(SUM(g.minutes), 0)::int as minutes,
+                COUNT(DISTINCT g.match_id)::int as matches,
+                COALESCE(SUM((g.stats->>'shots')::int), 0)::int as shots,
+                COALESCE(SUM((g.stats->>'shots_on_target')::int), 0)::int as shots_on_target,
+                COALESCE(SUM((g.stats->>'key_passes')::int), 0)::int as key_passes,
+                ROUND(COALESCE(SUM(g.goals), 0)::numeric / NULLIF(SUM(g.minutes)::numeric / 90.0, 0), 2)::float as goals_per_90,
+                ROUND(COALESCE(SUM(g.xg)::numeric, 0) / NULLIF(SUM(g.minutes)::numeric / 90.0, 0), 2)::float as xg_per_90,
+                ROUND(COALESCE(SUM(g.xa)::numeric, 0) / NULLIF(SUM(g.minutes)::numeric / 90.0, 0), 2)::float as xa_per_90,
+                ROUND(COALESCE(SUM((g.stats->>'shots')::numeric), 0) / NULLIF(SUM(g.minutes)::numeric / 90.0, 0), 2)::float as shots_per_90,
+                ROUND(COALESCE(SUM((g.stats->>'key_passes')::numeric), 0) / NULLIF(SUM(g.minutes)::numeric / 90.0, 0), 2)::float as key_passes_per_90,
+                CASE 
+                    WHEN COALESCE(SUM((g.stats->>'shots')::int), 0) > 0 
+                    THEN ROUND((COALESCE(SUM((g.stats->>'shots_on_target')::numeric), 0) / SUM((g.stats->>'shots')::numeric)) * 100.0, 1)::float
+                    ELSE 0.0 
+                END as shot_accuracy_pct
+            FROM gold_player_match_stats g
+            JOIN player p ON p.player_id = g.player_id
+            JOIN team t ON t.team_id = g.team_id
+            WHERE g.stat_type = 'standard'
+            GROUP BY p.player_id, p.display_name, p.full_name, p.photo_url, p.nationality_code, t.team_id, t.canonical_name, t.short_name
+            HAVING SUM(g.minutes) >= $1
+            ORDER BY {order_col} DESC NULLS LAST, {tie_col} DESC NULLS LAST, minutes ASC
+            LIMIT $2
+        """
+        rows = await db.fetch(query_fallback, min_minutes, limit)
 
-    # Sort with tie-breakers
-    def sort_key(item):
-        val = item.get(metric, 0)
-        tie = item.get("xg", 0) if metric == "goals" else item.get("xa", 0) if metric == "assists" else item.get("goals", 0)
-        return (val, tie)
-
-    results.sort(key=sort_key, reverse=True)
-    ranked = []
-    for idx, item in enumerate(results[:limit]):
-        ranked.append({"rank": idx + 1, **item})
-    return ranked
+    return [{"rank": idx + 1, **dict(r)} for idx, r in enumerate(rows)]
 
 
 @router.get(
@@ -228,10 +283,12 @@ async def get_player_rankings(
 )
 async def get_player_profile(
     player_id: Annotated[int, Path(..., description="Player ID")],
+    response: Response,
     db: asyncpg.Connection = Depends(get_database),
 ):
     """Get complete player profile from fn_api_player_profile RPC function."""
     logger.info("Getting profile for player_id=%s", player_id)
+    response.headers["Cache-Control"] = f"public, max-age={settings.CACHE_TTL_SECONDS}, stale-while-revalidate=60"
 
     result = await call_player_profile(db, player_id)
 
@@ -249,9 +306,11 @@ async def get_player_profile(
 )
 async def get_player_shots(
     player_id: Annotated[int, Path(..., description="Player ID")],
+    response: Response,
     db: asyncpg.Connection = Depends(get_database),
 ):
     """Get all shots taken by this player in the season with xg and situation."""
+    response.headers["Cache-Control"] = f"public, max-age={settings.CACHE_TTL_SECONDS}, stale-while-revalidate=60"
     query = """
         SELECT 
             me.event_id,
@@ -288,9 +347,11 @@ async def get_player_shots(
 )
 async def get_player_season_stats(
     player_id: Annotated[int, Path(..., description="Player ID")],
+    response: Response,
     db: asyncpg.Connection = Depends(get_database),
 ):
     """Get season totals from gold_player_match_stats with per-90 metrics."""
+    response.headers["Cache-Control"] = f"public, max-age={settings.CACHE_TTL_SECONDS}, stale-while-revalidate=60"
     query = """
         SELECT 
             COALESCE(SUM(goals), 0)::int as goals,

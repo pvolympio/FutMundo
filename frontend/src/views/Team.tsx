@@ -16,7 +16,6 @@ export function Team() {
   const { data: teamsListRaw, isLoading: isListLoading } = useTeams();
   const teamsList = useMemo<TeamItem[]>(() => {
     if (Array.isArray(teamsListRaw)) return teamsListRaw;
-    if (teamsListRaw && Array.isArray((teamsListRaw as any).items)) return (teamsListRaw as any).items;
     return [];
   }, [teamsListRaw]);
 
@@ -670,16 +669,18 @@ export function Team() {
             </h2>
           </div>
 
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {[
+          <div role="tablist" aria-label="Filtro de resultados" style={{ display: 'flex', gap: '8px' }}>
+            {([
               { id: 'all', label: 'Todas' },
               { id: 'V', label: 'Vitórias' },
               { id: 'E', label: 'Empates' },
               { id: 'D', label: 'Derrotas' },
-            ].map(tab => (
+            ] as const).map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setMatchFilter(tab.id as any)}
+                role="tab"
+                aria-selected={matchFilter === tab.id}
+                onClick={() => setMatchFilter(tab.id)}
                 className={`header-btn ${matchFilter === tab.id ? 'active' : ''}`}
                 style={{ padding: '6px 12px', fontSize: '11px', fontFamily: 'var(--mono)' }}
               >

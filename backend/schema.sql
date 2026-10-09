@@ -1133,15 +1133,54 @@ ORDER BY tms.match_id, tms.team_id, tms.stat_type,
 
 CREATE UNIQUE INDEX idx_gold_tms ON gold_team_match_stats(match_id, team_id, stat_type);
 
+-- View materializada agregada por temporada e atleta para rankings de alta performance
+CREATE MATERIALIZED VIEW mv_player_season_rankings AS
+SELECT 
+    p.player_id,
+    COALESCE(p.display_name, p.full_name) AS name,
+    p.photo_url,
+    p.nationality_code AS nationality,
+    t.team_id,
+    t.canonical_name AS team_name,
+    t.short_name AS team_short,
+    COALESCE(SUM(g.goals), 0)::int AS goals,
+    COALESCE(SUM(g.assists), 0)::int AS assists,
+    COALESCE(ROUND(SUM(g.xg)::numeric, 2), 0)::float AS xg,
+    COALESCE(ROUND(SUM(g.xa)::numeric, 2), 0)::float AS xa,
+    COALESCE(SUM(g.minutes), 0)::int AS minutes,
+    COUNT(DISTINCT g.match_id)::int AS matches,
+    COALESCE(SUM((g.stats->>'shots')::int), 0)::int AS shots,
+    COALESCE(SUM((g.stats->>'shots_on_target')::int), 0)::int AS shots_on_target,
+    COALESCE(SUM((g.stats->>'key_passes')::int), 0)::int AS key_passes,
+    ROUND(COALESCE(SUM(g.goals), 0)::numeric / NULLIF(SUM(g.minutes)::numeric / 90.0, 0), 2)::float AS goals_per_90,
+    ROUND(COALESCE(SUM(g.xg)::numeric, 0) / NULLIF(SUM(g.minutes)::numeric / 90.0, 0), 2)::float AS xg_per_90,
+    ROUND(COALESCE(SUM(g.xa)::numeric, 0) / NULLIF(SUM(g.minutes)::numeric / 90.0, 0), 2)::float AS xa_per_90,
+    ROUND(COALESCE(SUM((g.stats->>'shots')::numeric), 0) / NULLIF(SUM(g.minutes)::numeric / 90.0, 0), 2)::float AS shots_per_90,
+    ROUND(COALESCE(SUM((g.stats->>'key_passes')::numeric), 0) / NULLIF(SUM(g.minutes)::numeric / 90.0, 0), 2)::float AS key_passes_per_90,
+    CASE 
+        WHEN COALESCE(SUM((g.stats->>'shots')::int), 0) > 0 
+        THEN ROUND((COALESCE(SUM((g.stats->>'shots_on_target')::numeric), 0) / SUM((g.stats->>'shots')::numeric)) * 100.0, 1)::float
+        ELSE 0.0 
+    END AS shot_accuracy_pct
+FROM gold_player_match_stats g
+JOIN player p ON p.player_id = g.player_id
+JOIN team t ON t.team_id = g.team_id
+WHERE g.stat_type = 'standard'
+GROUP BY p.player_id, p.display_name, p.full_name, p.photo_url, p.nationality_code, t.team_id, t.canonical_name, t.short_name;
+
+CREATE UNIQUE INDEX idx_mv_player_season_rankings ON mv_player_season_rankings(player_id, team_id);
+
 CREATE OR REPLACE FUNCTION refresh_gold_views(p_concurrently BOOLEAN DEFAULT false)
 RETURNS VOID AS $$
 BEGIN
     IF p_concurrently THEN
         REFRESH MATERIALIZED VIEW CONCURRENTLY gold_player_match_stats;
         REFRESH MATERIALIZED VIEW CONCURRENTLY gold_team_match_stats;
+        REFRESH MATERIALIZED VIEW CONCURRENTLY mv_player_season_rankings;
     ELSE
         REFRESH MATERIALIZED VIEW gold_player_match_stats;
         REFRESH MATERIALIZED VIEW gold_team_match_stats;
+        REFRESH MATERIALIZED VIEW mv_player_season_rankings;
     END IF;
 END;
 $$ LANGUAGE plpgsql;

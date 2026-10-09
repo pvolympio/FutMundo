@@ -1,0 +1,39 @@
+# =====================================================================
+# Dockerfile Multi-stage para Frontend FutMundo (Produção)
+# =====================================================================
+
+# Estágio 1: Build da aplicação React/Vite
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copia dependências primeiro para aproveitar cache de camadas
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+# Copia código-fonte e compila bundle de produção otimizado
+COPY frontend/ ./
+RUN npm run build
+
+# Estágio 2: Imagem final leve servida por Nginx
+FROM nginx:alpine
+
+LABEL maintainer="FutMundo Team"
+LABEL description="FutMundo Football Analytics Web App"
+
+# Copia os artefatos compilados do estágio anterior
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Copia configuração de alta performance do Nginx
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
+
+# Cria diretório de cache/logs e ajusta permissões
+RUN mkdir -p /etc/nginx/ssl /var/cache/nginx /var/log/nginx
+
+EXPOSE 80
+EXPOSE 443
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget --quiet --tries=1 --spider http://127.0.0.1/ || exit 1
+
+CMD ["nginx", "-g", "daemon off;"]

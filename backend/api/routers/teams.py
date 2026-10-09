@@ -7,8 +7,9 @@ import logging
 from typing import Annotated, Optional
 
 import asyncpg
-from fastapi import APIRouter, Depends, Query, Path
+from fastapi import APIRouter, Depends, Query, Path, Response
 
+from backend.api.config import settings
 from backend.api.dependencies import not_found_error
 from backend.api.models import (
     HeadToHeadResponse,
@@ -35,15 +36,17 @@ logger = logging.getLogger(__name__)
     description="Get list of all Premier League teams with stadium and city information. Supports pagination via page and page_size parameters.",
 )
 async def list_teams(
+    response: Response,
     pagination: PaginationParams = Depends(),
     search: Optional[str] = Query(None, description="Filter by team name"),
     db: asyncpg.Connection = Depends(get_database),
 ):
-    """List all teams in the competition with pagination."""
+    """List all teams in the competition with pagination using trigram matching and COUNT(*) OVER()."""
     offset = pagination.offset
     limit = pagination.page_size
+    response.headers["Cache-Control"] = f"public, max-age={settings.CACHE_TTL_SECONDS}, stale-while-revalidate=60"
 
-    # Build query with optional search filter
+    # Consulta otimizada com COUNT(*) OVER() e busca por trigrama
     query = """
         SELECT
             t.team_id,
@@ -52,22 +55,33 @@ async def list_teams(
             t.slug,
             t.crest_url,
             COALESCE(v.name, '') as venue_name,
-            COALESCE(v.city, '') as city
+            COALESCE(v.city, '') as city,
+            COUNT(*) OVER() AS total_count
         FROM team t
         LEFT JOIN venue v ON v.venue_id = t.venue_id
-        WHERE ($3::text IS NULL OR t.canonical_name ILIKE '%' || $3 || '%')
+        WHERE ($3::text IS NULL
+               OR t.normalized_name % normalize_name($3)
+               OR t.normalized_name LIKE '%' || escape_like_pattern(normalize_name($3)) || '%')
         ORDER BY t.canonical_name ASC
         LIMIT $1 OFFSET $2
     """
     rows = await db.fetch(query, limit, offset, search)
-    items = [dict(r) for r in rows]
 
-    # Get total count for pagination
-    count_query = """
-        SELECT COUNT(*) FROM team
-        WHERE ($1::text IS NULL OR canonical_name ILIKE '%' || $1 || '%')
-    """
-    total = await db.fetchval(count_query, search)
+    if rows:
+        total = rows[0]["total_count"]
+        items = [{k: v for k, v in dict(r).items() if k != "total_count"} for r in rows]
+    else:
+        if offset == 0:
+            total = 0
+        else:
+            count_query = """
+                SELECT COUNT(*) FROM team t
+                WHERE ($1::text IS NULL
+                       OR t.normalized_name % normalize_name($1)
+                       OR t.normalized_name LIKE '%' || escape_like_pattern(normalize_name($1)) || '%')
+            """
+            total = await db.fetchval(count_query, search) or 0
+        items = []
 
     return PaginatedResponse(
         items=items,
@@ -90,11 +104,13 @@ async def list_teams(
 )
 async def get_team_profile(
     team_id: Annotated[int, Path(..., ge=1, description="Team ID (deve ser positivo)")],
+    response: Response,
     season_id: Optional[int] = Query(None, ge=1, description="Season ID (opcional, deve ser positivo)"),
     db: asyncpg.Connection = Depends(get_database),
 ):
     """Get complete team profile from fn_api_team_profile RPC function."""
     logger.info("Getting profile for team_id=%s, season_id=%s", team_id, season_id)
+    response.headers["Cache-Control"] = f"public, max-age={settings.CACHE_TTL_SECONDS}, stale-while-revalidate=60"
 
     result = await call_team_profile(db, team_id, season_id)
 

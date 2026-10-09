@@ -62,7 +62,8 @@ def build_response(
     success: bool = True,
     data: Any = None,
     message: str = None,
-    error: str = None
+    error: str = None,
+    detail: str = None,
 ) -> dict:
     """Build a standardized API response."""
     response = {"success": success}
@@ -70,16 +71,18 @@ def build_response(
         response["data"] = data
     if message:
         response["message"] = message
-    if error:
-        response["error"] = error
+    if error or detail:
+        response["error"] = error or detail
+        response["detail"] = detail or error
     return response
 
 
 class APIError(Exception):
     """Custom exception for API errors."""
 
-    def __init__(self, message: str, status_code: int = 500, details: str = None):
+    def __init__(self, message: str, status_code: int = 500, detail: str = None, details: str = None):
         self.message = message
         self.status_code = status_code
-        self.details = details
+        self.detail = detail or details or message
+        self.details = self.detail
         super().__init__(self.message)

@@ -26,8 +26,8 @@ export function NavHeader() {
       <header className="site-header">
         <div className="header-left">
           <NavLink to="/" className="brand-title">
-            <span className="brand-main">CARTA / TÁTICA</span>
-            <span className="brand-sub">PREMIER LEAGUE • 2024/25</span>
+            <span className="brand-main">FUTMUNDO</span>
+            <span className="brand-sub">PREMIER LEAGUE • ANALYTICS</span>
           </NavLink>
 
           <nav className="nav-menu">

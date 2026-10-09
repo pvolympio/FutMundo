@@ -7,8 +7,9 @@ import logging
 from typing import Annotated
 
 import asyncpg
-from fastapi import APIRouter, Depends, Query, Path
+from fastapi import APIRouter, Depends, Query, Path, Response
 
+from backend.api.config import settings
 from backend.api.database import get_database, call_standings_at_round
 from backend.api.models import StandingsResponse, LeagueStanding
 
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 async def get_standings(
     competition_id: Annotated[int, Path(..., description="Competition ID")],
     season_id: Annotated[int, Path(..., description="Season ID")],
+    response: Response,
     max_round: int | None = Query(None, ge=1, le=99, description="Maximum round number (optional)"),
     db: asyncpg.Connection = Depends(get_database),
 ):
@@ -40,6 +42,7 @@ async def get_standings(
     Get league standings using fn_standings_at_round RPC function.
     Returns standings at a specific round if max_round is provided.
     """
+    response.headers["Cache-Control"] = f"public, max-age={settings.CACHE_TTL_SECONDS}, stale-while-revalidate=60"
     logger.info(
         "Getting standings for competition_id=%s, season_id=%s, max_round=%s",
         competition_id, season_id, max_round

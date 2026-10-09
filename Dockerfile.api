@@ -25,7 +25,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar código da aplicação
 COPY backend/ ./backend/
-COPY api/ ./api/ 2>/dev/null || true
 
 # Usuário não-root para segurança
 RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app

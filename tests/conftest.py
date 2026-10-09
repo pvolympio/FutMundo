@@ -47,12 +47,12 @@ def mock_db_connection():
 
 
 @pytest_asyncio.fixture
-async def async_db_pool():
+async def async_db_pool(mock_db_connection):
     """Mock async database pool for testing."""
-    from unittest.mock import AsyncMock, MagicMock
+    from unittest.mock import AsyncMock
 
     mock_pool = AsyncMock()
-    mock_pool.acquire.return_value = await mock_db_connection()
+    mock_pool.acquire.return_value = mock_db_connection
     mock_pool.release = AsyncMock()
     mock_pool.close = AsyncMock()
     mock_pool.initialize = AsyncMock()

@@ -44,7 +44,7 @@ export function normalizeTeamKey(name?: string, alt?: string): TeamSlug | null {
   if (raw.includes('forest') || raw.includes('nott')) return 'nott-m-forest';
   if (raw.includes('southampton')) return 'southampton';
   if (raw.includes('tottenham') || raw.includes('spurs')) return 'tottenham';
-  if (raw.includes('west ham') || raw.includes('ham')) return 'west-ham';
+  if (raw.includes('west ham') || raw.includes('whu') || raw === 'ham') return 'west-ham';
   if (raw.includes('wolves') || raw.includes('wolverhampton')) return 'wolves';
 
   return null;

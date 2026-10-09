@@ -1,4 +1,4 @@
-# Guia de Inicialização - Carta/Tática
+# Guia de Inicialização - FutMundo
 
 ## Frontend
 

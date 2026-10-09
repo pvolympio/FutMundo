@@ -32,10 +32,14 @@ export function Pitch({
       <svg
         viewBox="0 0 105 68"
         className="pitch-svg"
+        role="img"
+        aria-labelledby="pitch-title pitch-desc"
         style={{
           position: 'absolute',
         }}
       >
+        <title id="pitch-title">Campo de Futebol Tático</title>
+        <desc id="pitch-desc">Representação gráfica das demarcações do gramado para análise posicional e visualização de chutes.</desc>
         {/* Marcações completas do campo tático */}
         <g className="pitch-markings" stroke="var(--ink-4)" strokeWidth={0.5} fill="none">
           {/* Linhas externas */}

@@ -94,17 +94,48 @@ def create_app() -> FastAPI:
     app.include_router(search_router)
     app.include_router(standings_router)
 
-    # Health check endpoint
-    @app.get("/health", tags=["Health"], summary="Health check with database verification")
-    async def health_check(db: asyncpg.Connection = Depends(get_database)):
-        """Health check endpoint to verify API is running and database is accessible."""
-        checks = {"status": "healthy", "version": settings.API_VERSION, "checks": {}}
+    # Health check endpoints: live (liveness) e ready (readiness)
+    @app.get("/health/live", tags=["Health"], summary="Liveness probe")
+    async def health_live():
+        """Liveness probe: verifica se o processo da API está ativo e respondendo."""
+        return {"status": "alive", "version": settings.API_VERSION}
 
-        # Database check
+    @app.get("/health/ready", tags=["Health"], summary="Readiness probe")
+    async def health_ready():
+        """Readiness probe: verifica se a aplicação está pronta para receber tráfego (incluindo DB)."""
+        checks = {"status": "ready", "version": settings.API_VERSION, "checks": {}}
         try:
-            await db.fetchval("SELECT 1")
-            checks["checks"]["database"] = "ok"
+            conn = await db_pool.acquire()
+            try:
+                await conn.fetchval("SELECT 1")
+                checks["checks"]["database"] = "ok"
+            finally:
+                await db_pool.release(conn)
+            return checks
         except Exception as e:
+            logger.warning("Readiness database check failed: %s", e)
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "degraded",
+                    "version": settings.API_VERSION,
+                    "checks": {"database": f"error: {str(e)}"},
+                },
+            )
+
+    @app.get("/health", tags=["Health"], summary="Health check consolidado")
+    async def health_check():
+        """Health check consolidado: nunca lança 500 se o banco estiver fora."""
+        checks = {"status": "healthy", "version": settings.API_VERSION, "checks": {}}
+        try:
+            conn = await db_pool.acquire()
+            try:
+                await conn.fetchval("SELECT 1")
+                checks["checks"]["database"] = "ok"
+            finally:
+                await db_pool.release(conn)
+        except Exception as e:
+            logger.warning("Health check database error: %s", e)
             checks["checks"]["database"] = f"error: {str(e)}"
             checks["status"] = "degraded"
 
@@ -134,28 +165,39 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
-# Exception handlers for standardized error format
+# Standardized exception handlers
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle HTTP exceptions with standardized format."""
-    logger.warning(f"HTTP error {exc.status_code}: {exc.detail}")
-    content = {"error": exc.detail if isinstance(exc.detail, str) else "Bad Request"}
-    if exc.detail:
-        content["detail"] = exc.detail
-    return JSONResponse(status_code=exc.status_code, content=content)
+    """Tratamento unificado para exceções HTTP com chave 'detail' padronizada."""
+    logger.warning("HTTP error %s: %s", exc.status_code, exc.detail)
+    detail_val = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": detail_val},
+    )
 
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Handle validation errors with standardized format."""
+    """Tratamento unificado para erros de validação Pydantic."""
     errors = exc.errors()
-    error_msg = "; ".join(f"{e.get('loc', ['unknown'])[-1]}: {e.get('msg', 'Invalid')}" for e in errors)
+    error_msg = "; ".join(
+        f"{e.get('loc', ['unknown'])[-1]}: {e.get('msg', 'Invalid')}" for e in errors
+    )
     return JSONResponse(
         status_code=422,
-        content={
-            "error": "Parâmetros inválidos",
-            "detail": error_msg,
-        },
+        content={"detail": error_msg},
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    """Tratamento unificado para erros inesperados."""
+    logger.error("Unexpected error on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+    msg = str(exc) if settings.DEBUG else "Internal Server Error"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": msg},
     )
 
 

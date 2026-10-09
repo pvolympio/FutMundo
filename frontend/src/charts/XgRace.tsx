@@ -42,7 +42,14 @@ export function XgRace({
 
   return (
     <div className={`xg-race ${className || ''}`}>
-      <svg viewBox={`0 0 300 ${(matchDuration / 90) * 200}`} style={{ width: '100%', height: 'auto' }}>
+      <svg
+        role="img"
+        aria-labelledby="xgrace-title xgrace-desc"
+        viewBox={`0 0 300 ${(matchDuration / 90) * 200}`}
+        style={{ width: '100%', height: 'auto' }}
+      >
+        <title id="xgrace-title">Gráfico de Corrida de xG</title>
+        <desc id="xgrace-desc">Evolução minuto a minuto dos gols esperados acumulados de ambas as equipes durante o confronto.</desc>
         {/* Linhas de referência */}
         <g className="xg-grid" stroke="var(--rule)" strokeWidth={0.5}>
           {Array.from({ length: 19 }).map((_, i) => (

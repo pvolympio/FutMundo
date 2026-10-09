@@ -58,94 +58,100 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             raise
 
 
-class ErrorHandlingMiddleware(BaseHTTPMiddleware):
-    """Middleware global para tratamento de erros com headers de segurança."""
+def get_client_ip(request: Request) -> str:
+    """Extrai IP real do cliente considerando proxies reversos (X-Forwarded-For, X-Real-IP)."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client = forwarded.split(",")[0].strip()
+        if client:
+            return client
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else "unknown"
 
-    def _add_security_headers(self, response: Response) -> None:
-        """Add security headers to all responses."""
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Middleware para adicionar headers de segurança em todas as respostas sem anular cache HTTP."""
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        # Não adiciona Cache-Control no-store aqui para permitir caching HTTP nos endpoints históricos
+        return response
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        try:
-            response = await call_next(request)
-            self._add_security_headers(response)
-            return response
-        except HTTPException as e:
-            logger.warning(f"HTTP error {e.status_code}: {e.detail}")
-            error_response = JSONResponse(
-                status_code=e.status_code,
-                content=ErrorResponse(
-                    error=e.detail if isinstance(e.detail, str) else "Bad Request",
-                    details=str(e.detail) if e.detail else None
-                ).model_dump()
-            )
-            self._add_security_headers(error_response)
-            return error_response
-        except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}", exc_info=True)
-            error_response = JSONResponse(
-                status_code=500,
-                content=ErrorResponse(
-                    error="Internal Server Error",
-                    details=str(e) if settings.DEBUG else "Ocorreu um erro inesperado"
-                ).model_dump()
-            )
-            self._add_security_headers(error_response)
-            return error_response
+
+# Alias para retrocompatibilidade
+ErrorHandlingMiddleware = SecurityHeadersMiddleware
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Middleware simples de rate limiting por IP."""
+    """
+    Middleware de rate limiting em memória por IP real com limpeza periódica de entradas.
+    Complementa o limit_req do Nginx para ambientes locais e defesa em profundidade.
+    """
 
     def __init__(self, app, requests: int = 100, window: int = 60):
         super().__init__(app)
         self.requests = requests
         self.window = window
         self._store: dict[str, list[float]] = {}
+        self._last_cleanup = time.time()
+
+    def _cleanup_old_entries(self, current_time: float) -> None:
+        """Limpa IPs inativos para evitar vazamento de memória."""
+        if current_time - self._last_cleanup < 60:
+            return
+        self._last_cleanup = current_time
+        expired_ips = [
+            ip for ip, timestamps in self._store.items()
+            if not timestamps or (current_time - timestamps[-1] >= self.window)
+        ]
+        for ip in expired_ips:
+            self._store.pop(ip, None)
+        # Proteção contra crescimento ilimitado
+        if len(self._store) > 10000:
+            self._store.clear()
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        client_ip = request.client.host if request.client else "unknown"
+        # Pula rate limit em endpoints de saúde/liveness
+        if request.url.path.startswith("/health"):
+            return await call_next(request)
+
+        client_ip = get_client_ip(request)
         current_time = time.time()
+        self._cleanup_old_entries(current_time)
 
-        # Limpa entradas antigas
-        if client_ip in self._store:
-            self._store[client_ip] = [
-                t for t in self._store[client_ip]
-                if current_time - t < self.window
-            ]
-        else:
-            self._store[client_ip] = []
+        # Filtra timestamps da janela atual
+        timestamps = self._store.get(client_ip, [])
+        timestamps = [t for t in timestamps if current_time - t < self.window]
+        self._store[client_ip] = timestamps
 
-        # Verifica rate limit
-        if len(self._store[client_ip]) >= self.requests:
-            reset_time = max(1, int(self.window - (current_time - (self._store[client_ip][0] if self._store[client_ip] else 0))))
+        if len(timestamps) >= self.requests:
+            reset_time = max(
+                1,
+                int(self.window - (current_time - (timestamps[0] if timestamps else current_time)))
+            )
             return JSONResponse(
                 status_code=429,
-                content=ErrorResponse(
-                    error="Too many requests",
-                    details=f"Limite de {self.requests} requisições por {self.window}s excedido"
-                ).model_dump(),
+                content={
+                    "detail": f"Limite de {self.requests} requisições por {self.window}s excedido"
+                },
                 headers={
                     "X-RateLimit-Limit": str(self.requests),
                     "X-RateLimit-Remaining": "0",
                     "X-RateLimit-Reset": str(reset_time),
                     "Retry-After": str(reset_time),
-                }
+                },
             )
 
-        # registra a requisição
-        self._store[client_ip].append(current_time)
-
+        timestamps.append(current_time)
         response = await call_next(request)
-
-        # Adiciona headers de rate limiting
         response.headers["X-RateLimit-Limit"] = str(self.requests)
-        response.headers["X-RateLimit-Remaining"] = str(self.requests - len(self._store[client_ip]))
-
+        response.headers["X-RateLimit-Remaining"] = str(max(0, self.requests - len(timestamps)))
         return response
 
 
@@ -157,14 +163,21 @@ def setup_cors(app):
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset", "X-Processing-Time"],
+        expose_headers=[
+            "Retry-After",
+            "X-RateLimit-Limit",
+            "X-RateLimit-Remaining",
+            "X-RateLimit-Reset",
+            "X-Processing-Time",
+            "ETag",
+        ],
     )
 
 
 def setup_middleware(app):
-    """Configura todos os middlewares da API."""
-    # Error handling primeiro
-    app.add_middleware(ErrorHandlingMiddleware)
+    """Configura todos os middlewares da API na ordem correta."""
+    # Headers de segurança
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # Logging de requisições
     app.add_middleware(RequestLoggingMiddleware)
@@ -173,7 +186,7 @@ def setup_middleware(app):
     app.add_middleware(
         RateLimitMiddleware,
         requests=settings.RATE_LIMIT_REQUESTS,
-        window=settings.RATE_LIMIT_WINDOW_SECONDS
+        window=settings.RATE_LIMIT_WINDOW_SECONDS,
     )
 
     # CORS

@@ -11,10 +11,12 @@ export function Tabs<T extends string = string>({
   className?: string;
 }) {
   return (
-    <nav className={`tabs ${className || ''}`}>
+    <nav role="tablist" className={`tabs ${className || ''}`}>
       {tabs.map((tab) => (
         <button
           key={tab.id}
+          role="tab"
+          aria-selected={activeTab === tab.id}
           onClick={() => onChange(tab.id)}
           className={`tab ${activeTab === tab.id ? 'active' : ''}`}
         >

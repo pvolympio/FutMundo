@@ -34,14 +34,14 @@ class APIResponse(BaseModel):
 class ErrorResponse(BaseModel):
     """Standard error response."""
 
-    error: str
+    detail: str
+    error: Optional[str] = None
     details: Optional[str] = None
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "error": "Resource not found",
-                "details": "The requested resource could not be found"
+                "detail": "The requested resource could not be found"
             }
         }
     )

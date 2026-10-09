@@ -24,23 +24,25 @@ export function Scrubber({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target !== document.body) return;
+      if (e.target !== document.body && e.target !== scrubberRef.current) return;
 
       if (e.key === ' ') {
         e.preventDefault();
         onPlay?.();
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        onChange(Math.min(value + 1, max));
+        const step = e.shiftKey ? 5 : 1;
+        onChange(Math.min(value + step, max));
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        onChange(Math.max(value - 1, min));
-      } else if (e.key === 'ArrowRight' && e.shiftKey) {
+        const step = e.shiftKey ? 5 : 1;
+        onChange(Math.max(value - step, min));
+      } else if (e.key === 'Home') {
         e.preventDefault();
-        onChange(Math.min(value + 5, max));
-      } else if (e.key === 'ArrowLeft' && e.shiftKey) {
+        onChange(min);
+      } else if (e.key === 'End') {
         e.preventDefault();
-        onChange(Math.max(value - 5, min));
+        onChange(max);
       }
     };
 
@@ -74,10 +76,18 @@ export function Scrubber({
   };
 
   const percentage = (value - min) / (max - min);
+  const currentMinute = Math.floor(value);
 
   return (
     <div
       ref={scrubberRef}
+      role="slider"
+      tabIndex={0}
+      aria-label="Linha do tempo da partida"
+      aria-valuenow={currentMinute}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuetext={`Minuto ${currentMinute}${value >= 90 ? '+' : ''}`}
       className={`scrubber ${isDragging ? 'is-dragging' : ''} ${className || ''}`}
       onMouseDown={handleMouseDown}
     >
@@ -85,7 +95,7 @@ export function Scrubber({
         <div className="scrubber-fill" style={{ width: `${percentage * 100}%` }} />
         <div className="scrubber-handle" style={{ left: `${percentage * 100}%` }}>
           <div className="scrubber-minute">
-            {Math.floor(value)}{value >= 90 ? "+" : ""}
+            {currentMinute}{value >= 90 ? "+" : ""}
           </div>
         </div>
         {playing && <div className="scrubber-playing">PLAY</div>}

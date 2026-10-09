@@ -176,6 +176,8 @@ export function League() {
 
       {/* Abas de Tabela Geral e Líderes Individuais */}
       <div
+        role="tablist"
+        aria-label="Abas da competição"
         style={{
           gridColumn: '1 / -1',
           display: 'flex',
@@ -185,16 +187,18 @@ export function League() {
           marginBottom: '16px',
         }}
       >
-        {[
+        {([
           { id: 'standings', label: 'Tabela de Classificação' },
           { id: 'goals', label: 'Artilharia (Gols)' },
           { id: 'assists', label: 'Garçons (Assistências)' },
           { id: 'xg', label: 'Gols Esperados (xG)' },
           { id: 'xa', label: 'Assist. Esperadas (xA)' },
-        ].map((tab) => (
+        ] as const).map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id as any)}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            onClick={() => setActiveTab(tab.id)}
             className={`header-btn ${activeTab === tab.id ? 'active' : ''}`}
             style={{ padding: '8px 16px', fontSize: '12px', fontFamily: 'var(--mono)' }}
           >
