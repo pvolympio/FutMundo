@@ -1,7 +1,7 @@
 /**
  * Client de API com dados reais do PostgreSQL/FastAPI e fallback gracioso.
  */
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 export interface PaginatedResponse<T> {
   items: T[];
@@ -298,23 +298,133 @@ export interface SearchResult {
   score?: number;
 }
 
-// Helper fetch com timeout
-async function apiFetch<T>(endpoint: string, fallback: T): Promise<T> {
-  try {
+export interface HeadToHeadSummary {
+  total_matches: number;
+  team_a_wins: number;
+  team_b_wins: number;
+  draws: number;
+  team_a_goals: number;
+  team_b_goals: number;
+}
+
+export interface HeadToHeadResponse {
+  team_a?: { team_id: number; name?: string; short_name?: string };
+  team_b?: { team_id: number; name?: string; short_name?: string };
+  summary?: HeadToHeadSummary;
+  recent_matches?: Array<{
+    match_id: number;
+    match_date?: string;
+    score?: { home: number; away: number };
+    home_team_id?: number;
+    away_team_id?: number;
+  }>;
+}
+
+export interface PlayerProfileData {
+  player_id: number;
+  full_name: string;
+  display_name?: string;
+  birth_date?: string;
+  age?: number;
+  nationality?: { code?: string; name?: string };
+  physical?: { height_cm?: number; weight_kg?: number; preferred_foot?: string };
+  photo_url?: string;
+  market_value?: { amount_eur?: number; formatted?: string };
+  club?: { team?: { id: number; name: string; short_name: string }; shirt_number?: number; position?: string };
+  career_teams?: Array<Record<string, unknown>>;
+  injuries?: Array<Record<string, unknown>>;
+  current_season_stats?: Record<string, unknown>;
+}
+
+export interface PlayerComparisonResponse {
+  player_a: Partial<PlayerRankingItem> & Record<string, unknown>;
+  player_b: Partial<PlayerRankingItem> & Record<string, unknown>;
+}
+
+export interface RequestOptions {
+  timeoutMs?: number;
+  retries?: number;
+  backoffMs?: number;
+  signal?: AbortSignal;
+  headers?: Record<string, string>;
+}
+
+// Client HTTP resiliente com timeout, retentativas exponenciais e cancelamento via AbortSignal
+export async function apiFetch<T>(
+  endpoint: string,
+  fallback: T,
+  options: RequestOptions = {}
+): Promise<T> {
+  const {
+    timeoutMs = 4000,
+    retries = 2,
+    backoffMs = 250,
+    signal,
+    headers = {},
+  } = options;
+
+  let attempt = 0;
+  while (attempt <= retries) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`${API_BASE}${endpoint}`, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    console.warn(`[FUTFUT API] Fallback em ${endpoint}:`, err);
-    return fallback;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    const onCallerAbort = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) {
+        clearTimeout(timeoutId);
+        return fallback;
+      }
+      signal.addEventListener('abort', onCallerAbort, { once: true });
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          ...headers,
+        },
+      });
+      clearTimeout(timeoutId);
+      if (signal) signal.removeEventListener('abort', onCallerAbort);
+
+      if (res.status === 304) {
+        return fallback;
+      }
+
+      if (!res.ok) {
+        // Erros de cliente (404, 400, etc.) não se beneficiam de retry imediato
+        if (res.status >= 400 && res.status < 500) {
+          console.warn(`[FutMundo API] HTTP ${res.status} em ${endpoint}`);
+          return fallback;
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      return (await res.json()) as T;
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      if (signal) signal.removeEventListener('abort', onCallerAbort);
+
+      if (signal?.aborted) {
+        return fallback;
+      }
+
+      attempt++;
+      if (attempt <= retries) {
+        await new Promise((r) => setTimeout(r, backoffMs * Math.pow(2, attempt - 1)));
+      } else {
+        console.warn(`[FutMundo API] Fallback acionado em ${endpoint} após ${retries} tentativas:`, err);
+        return fallback;
+      }
+    }
   }
+
+  return fallback;
 }
 
 /** Listar partidas de uma rodada */
-export async function getMatchesByRound(round: number = 7): Promise<MatchSummary[]> {
+export async function getMatchesByRound(round: number = 7, options?: RequestOptions): Promise<MatchSummary[]> {
   const fallback: MatchSummary[] = [
     {
       match_id: 50,
@@ -333,21 +443,26 @@ export async function getMatchesByRound(round: number = 7): Promise<MatchSummary
     },
   ];
 
-  const res = await apiFetch<any>(`/matches?round=${round}&page_size=20`, fallback);
+  const res = await apiFetch<PaginatedResponse<MatchSummary> | MatchSummary[]>(
+    `/matches?round=${round}&page_size=20`,
+    fallback,
+    options
+  );
   if (Array.isArray(res)) {
     return res;
   }
-  if (res && Array.isArray(res.items)) {
-    return res.items;
+  if (res && Array.isArray((res as PaginatedResponse<MatchSummary>).items)) {
+    return (res as PaginatedResponse<MatchSummary>).items;
   }
   return fallback;
 }
 
 /** Obter último jogo jogado e última rodada */
-export async function getLatestMatch(): Promise<{ match_id: number; round: number; match_date?: string }> {
+export async function getLatestMatch(options?: RequestOptions): Promise<{ match_id: number; round: number; match_date?: string }> {
   return apiFetch<{ match_id: number; round: number; match_date?: string }>(
     '/matches/latest',
-    { match_id: 50, round: 5 }
+    { match_id: 50, round: 5 },
+    options
   );
 }
 
@@ -375,14 +490,14 @@ const DEFAULT_FALLBACK_MATCH: MatchDetailsData = {
 };
 
 /** Obter detalhes completos da partida */
-export async function getMatchDetails(matchId: number): Promise<MatchDetailsData> {
-  const data = await apiFetch<MatchDetailsData | null>(`/matches/${matchId}`, null);
+export async function getMatchDetails(matchId: number, options?: RequestOptions): Promise<MatchDetailsData> {
+  const data = await apiFetch<MatchDetailsData | null>(`/matches/${matchId}`, null, options);
   if (data && data.home_team) return data;
   return { ...DEFAULT_FALLBACK_MATCH, match_id: matchId };
 }
 
 /** Listar todos os 20 times da Premier League */
-export async function getTeams(): Promise<TeamItem[]> {
+export async function getTeams(options?: RequestOptions): Promise<TeamItem[]> {
   const fallback: TeamItem[] = [
     { team_id: 3, canonical_name: 'Arsenal', short_name: 'Arsenal', slug: 'arsenal', venue_name: 'Emirates Stadium' },
     { team_id: 14, canonical_name: 'Aston Villa', short_name: 'Aston Villa', slug: 'aston-villa', venue_name: 'Villa Park' },
@@ -393,52 +508,38 @@ export async function getTeams(): Promise<TeamItem[]> {
     { team_id: 4, canonical_name: 'Tottenham Hotspur', short_name: 'Tottenham', slug: 'tottenham', venue_name: 'Tottenham Hotspur Stadium' },
   ];
 
-  const res = await apiFetch<any>('/teams?page_size=30', fallback);
+  const res = await apiFetch<PaginatedResponse<TeamItem> | TeamItem[]>('/teams?page_size=30', fallback, options);
   if (Array.isArray(res)) return res;
-  if (res && Array.isArray(res.items)) return res.items;
+  if (res && Array.isArray((res as PaginatedResponse<TeamItem>).items)) return (res as PaginatedResponse<TeamItem>).items;
   return fallback;
 }
 
 /** Obter perfil do clube via fn_api_team_profile */
-export async function getTeamProfile(teamId: number): Promise<TeamProfileData> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6000);
-  try {
-    const res = await fetch(`${API_BASE}/teams/${teamId}`, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    clearTimeout(timeout);
-    throw err;
-  }
+export async function getTeamProfile(teamId: number, options?: RequestOptions): Promise<TeamProfileData | null> {
+  return apiFetch<TeamProfileData | null>(`/teams/${teamId}`, null, {
+    timeoutMs: 6000,
+    ...options,
+  });
 }
 
 /** Obter jogos da temporada, métricas consolidadas e elenco real */
-export async function getTeamSeason(teamId: number, seasonId?: number): Promise<TeamSeasonData> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 6000);
-  try {
-    const query = seasonId ? `?season_id=${seasonId}` : '';
-    const res = await fetch(`${API_BASE}/teams/${teamId}/season${query}`, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    clearTimeout(timeout);
-    throw err;
-  }
+export async function getTeamSeason(teamId: number, seasonId?: number, options?: RequestOptions): Promise<TeamSeasonData | null> {
+  const query = seasonId ? `?season_id=${seasonId}` : '';
+  return apiFetch<TeamSeasonData | null>(`/teams/${teamId}/season${query}`, null, {
+    timeoutMs: 6000,
+    ...options,
+  });
 }
 
 /** Confronto direto (H2H) */
-export async function getTeamH2H(teamA: number, teamB: number): Promise<any> {
-  return apiFetch<any>(`/teams/${teamA}/head-to-head/${teamB}`, null);
+export async function getTeamH2H(teamA: number, teamB: number, options?: RequestOptions): Promise<HeadToHeadResponse | null> {
+  return apiFetch<HeadToHeadResponse | null>(`/teams/${teamA}/head-to-head/${teamB}`, null, options);
 }
 
 /** Tabela de classificação na rodada max_round */
-export async function getStandings(maxRound?: number): Promise<StandingRow[]> {
+export async function getStandings(maxRound?: number, options?: RequestOptions): Promise<StandingRow[]> {
   const url = maxRound ? `/standings/1/1?max_round=${maxRound}` : '/standings/1/1';
-  const data = await apiFetch<{ standings: StandingRow[] } | null>(url, null);
+  const data = await apiFetch<{ standings: StandingRow[] } | null>(url, null, options);
   if (data && data.standings && data.standings.length > 0) {
     return data.standings;
   }
@@ -446,34 +547,44 @@ export async function getStandings(maxRound?: number): Promise<StandingRow[]> {
 }
 
 /** Perfil completo do jogador */
-export async function getPlayerProfile(playerId: number): Promise<any> {
-  return apiFetch<any>(`/players/${playerId}`, null);
+export async function getPlayerProfile(playerId: number, options?: RequestOptions): Promise<PlayerProfileData | null> {
+  return apiFetch<PlayerProfileData | null>(`/players/${playerId}`, null, options);
 }
 
 /** Chutes individuais do jogador */
-export async function getPlayerShots(playerId: number): Promise<PlayerShotEvent[]> {
-  return apiFetch<PlayerShotEvent[]>(`/players/${playerId}/shots`, []);
+export async function getPlayerShots(playerId: number, options?: RequestOptions): Promise<PlayerShotEvent[]> {
+  return apiFetch<PlayerShotEvent[]>(`/players/${playerId}/shots`, [], options);
 }
 
 /** Totais estatísticos do jogador na temporada */
-export async function getPlayerStats(playerId: number): Promise<PlayerSeasonStats | null> {
-  return apiFetch<PlayerSeasonStats | null>(`/players/${playerId}/stats`, null);
+export async function getPlayerStats(playerId: number, options?: RequestOptions): Promise<PlayerSeasonStats | null> {
+  return apiFetch<PlayerSeasonStats | null>(`/players/${playerId}/stats`, null, options);
 }
 
 /** Comparação direta entre dois jogadores com métricas de radar */
-export async function comparePlayers(p1: number, p2: number): Promise<{ player_a: any; player_b: any }> {
-  return apiFetch<{ player_a: any; player_b: any }>(
+export async function comparePlayers(
+  p1: number,
+  p2: number,
+  options?: RequestOptions
+): Promise<PlayerComparisonResponse> {
+  return apiFetch<PlayerComparisonResponse>(
     `/players/compare?p1=${p1}&p2=${p2}`,
-    { player_a: {}, player_b: {} }
+    { player_a: {}, player_b: {} },
+    options
   );
 }
 
 /** Busca global com trigramas */
-export async function searchEntities(query: string, limit: number = 10): Promise<{ results: SearchResult[]; total: number }> {
+export async function searchEntities(
+  query: string,
+  limit: number = 10,
+  options?: RequestOptions
+): Promise<{ results: SearchResult[]; total: number }> {
   if (!query || query.trim().length === 0) return { results: [], total: 0 };
   return apiFetch<{ results: SearchResult[]; total: number }>(
     `/search?q=${encodeURIComponent(query)}&limit=${limit}`,
-    { results: [], total: 0 }
+    { results: [], total: 0 },
+    options
   );
 }
 
@@ -481,12 +592,18 @@ export async function searchEntities(query: string, limit: number = 10): Promise
 export async function getPlayerRankings(
   metric: string = 'goals',
   limit: number = 20,
-  minMinutes: number = 200
+  minMinutes: number = 200,
+  options?: RequestOptions
 ): Promise<PlayerRankingItem[]> {
   return apiFetch<PlayerRankingItem[]>(
     `/players/rankings?metric=${metric}&limit=${limit}&min_minutes=${minMinutes}`,
-    []
+    [],
+    options
   );
 }
+
+// Re-export openapi types for schema consumers
+export type { paths, operations, components } from './api-schema';
+
 
 
