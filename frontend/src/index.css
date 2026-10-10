@@ -509,6 +509,141 @@
   border-radius: 2px;
 }
 
+/* =========================================================================
+   Layout Responsivo & Breakpoints Mobile (Melhoria 8)
+   ========================================================================= */
+.match-main-layout {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 32px;
+}
+
+.match-sidebar-panel {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.player-shots-layout {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 32px;
+  margin-bottom: 40px;
+}
+
+.player-shots-sidebar {
+  flex: 0 0 340px;
+  background: var(--bg-1);
+  border: 1px solid var(--rule);
+  padding: 20px;
+  border-radius: 2px;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Telas Médias / Tablets (< 960px) */
+@media (max-width: 960px) {
+  .container,
+  .match-container,
+  .player-container,
+  .team-container,
+  .league-container,
+  .h2h-container,
+  .index-container {
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .match-main-layout {
+    flex-direction: column !important;
+    gap: 24px !important;
+  }
+
+  .match-sidebar-panel {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+  }
+
+  .player-shots-layout {
+    flex-direction: column !important;
+    gap: 24px !important;
+  }
+
+  .player-shots-sidebar {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
+}
+
+/* Dispositivos Móveis (< 768px) */
+@media (max-width: 768px) {
+  .site-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+
+  .header-left {
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .nav-menu {
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    gap: 6px;
+  }
+
+  .nav-item {
+    padding: 5px 8px;
+    font-size: 10px;
+  }
+
+  .header-right {
+    justify-content: flex-end;
+  }
+
+  .h1 {
+    font-size: clamp(48px, 12vw, 84px);
+  }
+
+  .title {
+    font-size: 24px;
+  }
+}
+
+/* Telas Pequenas (< 480px) */
+@media (max-width: 480px) {
+  .container,
+  .match-container,
+  .player-container,
+  .team-container,
+  .league-container,
+  .h2h-container,
+  .index-container {
+    padding: 12px 8px;
+    gap: 12px;
+  }
+
+  .brand-main {
+    font-size: 16px;
+  }
+
+  .brand-sub {
+    font-size: 8px;
+  }
+}
+
 /* Acessibilidade: Respeita preferências de redução de movimento do usuário */
 @media (prefers-reduced-motion: reduce) {
   *,

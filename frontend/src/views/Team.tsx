@@ -6,6 +6,7 @@ import { Crest } from '../ui/Crest';
 import { getClubTheme } from '../lib/clubColors';
 import { TeamTrend } from '../charts/TeamTrend';
 import { Skeleton } from '../ui/Skeleton';
+import { TeamSquadTable } from '../ui/TeamSquadTable';
 
 export function Team() {
   const { id } = useParams<{ id?: string }>();
@@ -487,166 +488,15 @@ export function Team() {
         )}
       </div>
 
-      {/* Squad Table Section */}
-      <div
-        style={{
-          gridColumn: '1 / -1',
-          marginBottom: '40px',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            flexWrap: 'wrap',
-            gap: '16px',
-            marginBottom: '16px',
-          }}
-        >
-          <div>
-            <div className="label" style={{ color: clubTheme.accent, marginBottom: '4px' }}>
-              ELENCO NA TEMPORADA • DADOS REAIS DE SÚMULA
-            </div>
-            <h2 className="title" style={{ fontSize: '24px', margin: 0, fontFamily: 'var(--serif)' }}>
-              Atletas e Produção ({season?.squad?.length || 0} jogadores)
-            </h2>
-          </div>
-
-          {/* Position filter buttons */}
-          <div style={{ display: 'flex', gap: '8px' }}>
-            {[
-              { id: 'all', label: 'Todos' },
-              { id: 'gk', label: 'Goleiros' },
-              { id: 'def', label: 'Defensores' },
-              { id: 'mid', label: 'Meio-campo' },
-              { id: 'att', label: 'Atacantes' },
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setSquadFilter(tab.id)}
-                className={`header-btn ${squadFilter === tab.id ? 'active' : ''}`}
-                style={{ padding: '6px 12px', fontSize: '11px', fontFamily: 'var(--mono)' }}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="editorial-card" style={{ padding: 0, overflowX: 'auto' }}>
-          <table className="standings-table" style={{ width: '100%' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', paddingLeft: '20px' }}>Atleta</th>
-                <th style={{ textAlign: 'left' }}>Posição</th>
-                <th style={{ textAlign: 'center' }}>Nacionalidade</th>
-                <th style={{ textAlign: 'right' }}>Jogos (Titular)</th>
-                <th style={{ textAlign: 'right' }}>Minutos</th>
-                <th style={{ textAlign: 'right' }}>Gols</th>
-                <th style={{ textAlign: 'right' }}>Assist.</th>
-                <th style={{ textAlign: 'right' }}>xG</th>
-                <th style={{ textAlign: 'right', paddingRight: '20px' }}>xA</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={9} style={{ padding: '30px', textAlign: 'center' }}>
-                    <Skeleton variant="text" count={6} />
-                  </td>
-                </tr>
-              ) : filteredSquad.length === 0 ? (
-                <tr>
-                  <td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: 'var(--ink-3)' }}>
-                    Nenhum atleta encontrado para este filtro.
-                  </td>
-                </tr>
-              ) : (
-                filteredSquad.map(player => (
-                  <tr
-                    key={player.player_id}
-                    onClick={() => navigate(`/player/${player.player_id}`)}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <td style={{ paddingLeft: '20px', fontWeight: 600, color: 'var(--ink)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        {player.photo_url ? (
-                          <img
-                            src={player.photo_url}
-                            alt={player.name}
-                            style={{
-                              width: '28px',
-                              height: '28px',
-                              borderRadius: '50%',
-                              objectFit: 'cover',
-                              background: 'var(--bg-2)',
-                            }}
-                          />
-                        ) : (
-                          <span
-                            style={{
-                              width: '28px',
-                              height: '28px',
-                              borderRadius: '50%',
-                              background: 'var(--bg-2)',
-                              border: '1px solid var(--rule)',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '10px',
-                              color: 'var(--ink-3)',
-                            }}
-                          >
-                            {player.name.substring(0, 2).toUpperCase()}
-                          </span>
-                        )}
-                        <span>{player.name}</span>
-                      </div>
-                    </td>
-                    <td style={{ color: clubTheme.accent, fontSize: '12px', fontWeight: 600 }}>
-                      {player.position_code || player.position_name || '-'}
-                    </td>
-                    <td style={{ textAlign: 'center', color: 'var(--ink-3)', fontSize: '11px' }}>
-                      {player.nationality || '-'}
-                    </td>
-                    <td style={{ textAlign: 'right', color: 'var(--ink)' }}>
-                      {player.appearances} <span style={{ color: 'var(--ink-3)', fontSize: '11px' }}>({player.starts})</span>
-                    </td>
-                    <td style={{ textAlign: 'right', color: 'var(--ink-2)' }}>
-                      {player.minutes}'
-                    </td>
-                    <td
-                      style={{
-                        textAlign: 'right',
-                        fontWeight: player.goals > 0 ? 700 : 400,
-                        color: player.goals > 0 ? 'var(--ink)' : 'var(--ink-3)',
-                      }}
-                    >
-                      {player.goals}
-                    </td>
-                    <td
-                      style={{
-                        textAlign: 'right',
-                        fontWeight: player.assists > 0 ? 700 : 400,
-                        color: player.assists > 0 ? 'var(--ink)' : 'var(--ink-3)',
-                      }}
-                    >
-                      {player.assists}
-                    </td>
-                    <td style={{ textAlign: 'right', color: 'var(--ink-2)' }}>
-                      {player.xg.toFixed(2)}
-                    </td>
-                    <td style={{ textAlign: 'right', paddingRight: '20px', color: 'var(--ink-2)' }}>
-                      {player.xa.toFixed(2)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Squad Table Component (Melhoria 9) */}
+      <TeamSquadTable
+        squad={filteredSquad}
+        isLoading={isLoading}
+        squadFilter={squadFilter}
+        onFilterChange={setSquadFilter}
+        onSelectPlayer={(playerId) => navigate(`/player/${playerId}`)}
+        accentColor={clubTheme.accent}
+      />
 
       {/* Season Matches List Section */}
       <div style={{ gridColumn: '1 / -1' }}>

@@ -166,7 +166,7 @@ export function Match() {
       </div>
 
       {/* Conteúdo Principal de acordo com a aba ativa */}
-      <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '32px' }}>
+      <div className="match-main-layout">
         {/* Painel Esquerdo: Visualização Central */}
         <div style={{ flex: 1, position: 'relative' }}>
           {activeTab === 'pitch' && (
@@ -327,7 +327,7 @@ export function Match() {
         </div>
 
         {/* Painel Direito: Scrubber + Diário de Bordo da Partida */}
-        <div style={{ flex: '0 0 320px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div className="match-sidebar-panel">
           {/* Scrubber do Relógio */}
           <div style={{ background: 'var(--bg-1)', border: '1px solid var(--rule)', padding: '16px', borderRadius: '2px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>

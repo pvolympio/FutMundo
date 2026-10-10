@@ -6,7 +6,6 @@ import {
   usePlayerStats,
   usePlayerComparison,
   usePlayerRankings,
-  useSearch,
 } from '../lib/queries';
 import { Pitch } from '../charts/Pitch';
 import { ShotMarkers } from '../charts/ShotMarkers';
@@ -14,120 +13,9 @@ import { ShotContours } from '../charts/ShotContours';
 import { PlayerRadar, PlayerMetricData } from '../charts/PlayerRadar';
 import { Crest } from '../ui/Crest';
 import { Skeleton } from '../ui/Skeleton';
+import { PlayerPicker } from '../ui/PlayerPicker';
 import { usePageTitle } from '../lib/usePageTitle';
 import { getClubTheme } from '../lib/clubColors';
-
-const FEATURED_PLAYERS = [
-  { id: 327, name: 'Mohamed Salah', club: 'Liverpool', pos: 'RW' },
-  { id: 393, name: 'Alexander Isak', club: 'Newcastle', pos: 'CF' },
-  { id: 338, name: 'Erling Haaland', club: 'Manchester City', pos: 'CF' },
-  { id: 145, name: 'Cole Palmer', club: 'Chelsea', pos: 'AM' },
-  { id: 2, name: 'Bukayo Saka', club: 'Arsenal', pos: 'RW' },
-  { id: 48, name: 'Ollie Watkins', club: 'Aston Villa', pos: 'CF' },
-  { id: 355, name: 'Phil Foden', club: 'Manchester City', pos: 'AM' },
-  { id: 345, name: 'Kevin De Bruyne', club: 'Manchester City', pos: 'CM' },
-  { id: 501, name: 'Son Heung-min', club: 'Tottenham', pos: 'LW' },
-  { id: 549, name: 'Matheus Cunha', club: 'Wolves', pos: 'CF' },
-];
-
-function PlayerPicker({
-  label,
-  color,
-  selectedName,
-  onSelect,
-}: {
-  label: string;
-  color: string;
-  selectedName: string;
-  onSelect: (id: number) => void;
-}) {
-  const [query, setQuery] = useState('');
-  const [isOpen, setIsOpen] = useState(false);
-  const { data: searchData, isLoading } = useSearch(query.trim(), 6);
-  const players = (searchData?.results || []).filter((r) => r.type === 'player');
-
-  return (
-    <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-        <span className="label" style={{ color }}>{label}</span>
-        <span style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: 'var(--ink)' }}>{selectedName}</span>
-      </div>
-      <input
-        type="text"
-        placeholder="Buscar qualquer atleta para comparar..."
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setIsOpen(true);
-        }}
-        onFocus={() => setIsOpen(true)}
-        style={{
-          width: '100%',
-          padding: '8px 12px',
-          background: 'var(--bg-2)',
-          border: '1px solid var(--rule)',
-          borderRadius: '2px',
-          color: 'var(--ink)',
-          fontFamily: 'var(--mono)',
-          fontSize: '12px',
-          boxSizing: 'border-box',
-        }}
-      />
-      {isOpen && query.trim().length >= 2 && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '100%',
-            left: 0,
-            right: 0,
-            background: 'var(--bg-2)',
-            border: '1px solid var(--rule)',
-            borderRadius: '2px',
-            zIndex: 50,
-            marginTop: '4px',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-            maxHeight: '220px',
-            overflowY: 'auto',
-          }}
-        >
-          {isLoading ? (
-            <div style={{ padding: '8px 12px', fontSize: '11px', color: 'var(--ink-3)', fontFamily: 'var(--mono)' }}>
-              Buscando atletas...
-            </div>
-          ) : players.length === 0 ? (
-            <div style={{ padding: '8px 12px', fontSize: '11px', color: 'var(--ink-3)', fontFamily: 'var(--mono)' }}>
-              Nenhum atleta encontrado.
-            </div>
-          ) : (
-            players.map((p) => (
-              <div
-                key={p.id}
-                onClick={() => {
-                  onSelect(p.id);
-                  setQuery('');
-                  setIsOpen(false);
-                }}
-                style={{
-                  padding: '8px 12px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  cursor: 'pointer',
-                  borderBottom: '1px solid var(--rule-soft)',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-1)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              >
-                <span style={{ fontWeight: 600, color: 'var(--ink)', fontSize: '12px' }}>{p.name}</span>
-                {p.subtitle && <span style={{ color: 'var(--ink-3)', fontSize: '11px' }}>({p.subtitle})</span>}
-              </div>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function Player() {
   const { id } = useParams<{ id?: string }>();
@@ -458,13 +346,15 @@ export function Player() {
 
       {/* Conteúdo: Modo Mapa de Chutes */}
       {viewMode === 'shots' && (
-        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '32px', marginBottom: '40px' }}>
+        <div className="player-shots-layout">
           {/* Campinho com todos os chutes */}
           <div style={{ flex: 1, position: 'relative' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '12px' }}>
               <span className="label">POSICIONAMENTO NO GRAMADO ({filteredShots.length} CHUTES)</span>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px' }} role="tablist" aria-label="Filtrar finalizações">
                 <button
+                  role="tab"
+                  aria-selected={activeFilter === 'all'}
                   onClick={() => setActiveFilter('all')}
                   className={`header-btn ${activeFilter === 'all' ? 'active' : ''}`}
                   style={{ fontSize: '10px' }}
@@ -472,6 +362,8 @@ export function Player() {
                   TODOS ({formattedShots.length})
                 </button>
                 <button
+                  role="tab"
+                  aria-selected={activeFilter === 'goal'}
                   onClick={() => setActiveFilter('goal')}
                   className={`header-btn ${activeFilter === 'goal' ? 'active' : ''}`}
                   style={{ fontSize: '10px', color: 'var(--accent)' }}
@@ -479,6 +371,8 @@ export function Player() {
                   GOLS ({formattedShots.filter((s) => s.result === 'goal').length})
                 </button>
                 <button
+                  role="tab"
+                  aria-selected={activeFilter === 'saved'}
                   onClick={() => setActiveFilter('saved')}
                   className={`header-btn ${activeFilter === 'saved' ? 'active' : ''}`}
                   style={{ fontSize: '10px', color: 'var(--opp)' }}
@@ -486,6 +380,8 @@ export function Player() {
                   DEFESAS ({formattedShots.filter((s) => s.result === 'saved').length})
                 </button>
                 <button
+                  role="tab"
+                  aria-selected={activeFilter === 'miss'}
                   onClick={() => setActiveFilter('miss')}
                   className={`header-btn ${activeFilter === 'miss' ? 'active' : ''}`}
                   style={{ fontSize: '10px', color: 'var(--ink-3)' }}
@@ -508,7 +404,7 @@ export function Player() {
           </div>
 
           {/* Diário das Finalizações Recentes com Oponente */}
-          <div style={{ flex: '0 0 340px', background: 'var(--bg-1)', border: '1px solid var(--rule)', padding: '20px', borderRadius: '2px' }}>
+          <div className="player-shots-sidebar">
             <div className="label" style={{ marginBottom: '16px' }}>
               REGISTRO DE CHUTES NA TEMPORADA
             </div>
@@ -600,7 +496,7 @@ export function Player() {
             <span style={{ fontFamily: 'var(--mono)', fontSize: '10px', color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>
               RIVAIS SUGERIDOS:
             </span>
-            {FEATURED_PLAYERS.filter((p) => p.id !== selectedPlayerId).map((p) => {
+            {featuredPlayers.filter((p) => p.id !== selectedPlayerId).map((p) => {
               const rTheme = getClubTheme(p.club);
               const isRivalSelected = p.id === effectiveRivalId;
               return (
