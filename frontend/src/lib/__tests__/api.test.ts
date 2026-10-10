@@ -67,21 +67,27 @@ describe('FutMundo Resilient API Client (apiFetch)', () => {
   });
 
   it('retorna fallback ao estourar o timeout configurado', async () => {
-    globalThis.fetch = vi.fn().mockImplementation(() => {
-      return new Promise((resolve) => {
-        setTimeout(() => {
+    globalThis.fetch = vi.fn().mockImplementation((_url, init) => {
+      return new Promise((resolve, reject) => {
+        const signal = init?.signal as AbortSignal | undefined;
+        const timer = setTimeout(() => {
           resolve({
             ok: true,
             status: 200,
             json: async () => ({ data: 'late' }),
           } as Response);
         }, 200);
+
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new DOMException('The operation was aborted', 'AbortError'));
+        });
       });
     });
 
     const fallback = { timeout: true };
     const result = await apiFetch('/slow-endpoint', fallback, {
-      timeoutMs: 50,
+      timeoutMs: 30,
       retries: 0,
     });
 
